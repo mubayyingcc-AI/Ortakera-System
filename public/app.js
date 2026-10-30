@@ -11,4 +11,30 @@ let saved='en';try{saved=localStorage.getItem('ortakera-language')||'en'}catch{}
 const menu=document.getElementById('mobileMenu'),nav=document.getElementById('mainNav');menu.addEventListener('click',()=>nav.classList.toggle('open'));nav.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>nav.classList.remove('open')));document.getElementById('year').textContent=new Date().getFullYear();
 const toast=document.getElementById('toast');let timer;function notify(message){toast.textContent=message;toast.classList.add('show');clearTimeout(timer);timer=setTimeout(()=>toast.classList.remove('show'),3500)}
 document.querySelectorAll('a[href="#contact"]').forEach(a=>a.addEventListener('click',()=>{const label=a.textContent.toLowerCase();const select=document.getElementById('interest');if(/business|service|iş|entreprise|geschäft|خدمات/.test(label))select.selectedIndex=1;else if(/partner|partenaire|partner|شريك/.test(label))select.selectedIndex=2;else if(/skill|capabilit|compétence|kompetenz|مهارات/.test(label))select.selectedIndex=3;}));
-document.getElementById('leadForm').addEventListener('submit',e=>{e.preventDefault();const form=e.currentTarget;if(!form.reportValidity())return;const data=Object.fromEntries(new FormData(form).entries());try{sessionStorage.setItem('ortakera-preview-enquiry',JSON.stringify({...data,preparedAt:new Date().toISOString(),notice:'Local preview only; not transmitted or stored on a server.'}))}catch{};const dict=translations[document.documentElement.lang]||translations.en;document.getElementById('formNote').textContent=dict.toast_local;notify(dict.toast_local);form.reset()});
+document.getElementById('leadForm').addEventListener('submit',async e=>{
+ e.preventDefault();
+ const form=e.currentTarget;
+ if(!form.reportValidity())return;
+ const submit=form.querySelector('[type="submit"]');
+ const note=document.getElementById('formNote');
+ const original=submit.innerHTML;
+ submit.disabled=true;
+ submit.textContent=document.documentElement.lang==='tr'?'Gönderiliyor…':document.documentElement.lang==='ar'?'جارٍ الإرسال…':document.documentElement.lang==='fr'?'Envoi…':document.documentElement.lang==='de'?'Wird gesendet…':'Sending…';
+ note.textContent='';
+ const fields=Object.fromEntries(new FormData(form).entries());
+ const payload={name:fields.name,email:fields.email,organization:fields.organization||'',interest:fields.interest,message:fields.message,consent:fields.consent==='yes',locale:document.documentElement.lang};
+ try{
+  const response=await fetch('/api/v1/enquiries',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)});
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.error||'The enquiry could not be submitted.');
+  note.textContent=(document.documentElement.lang==='tr'?'Talebiniz alındı. Referans: ':document.documentElement.lang==='ar'?'تم استلام طلبك. المرجع: ':document.documentElement.lang==='fr'?'Votre demande a été reçue. Référence : ':document.documentElement.lang==='de'?'Ihre Anfrage ist eingegangen. Referenz: ':'Your enquiry has been received. Reference: ')+result.reference;
+  notify(note.textContent);
+  form.reset();
+ }catch(error){
+  note.textContent=error.message==='Failed to fetch'?'Connection problem. Please try again.':error.message;
+  notify(note.textContent);
+ }finally{
+  submit.disabled=false;
+  submit.innerHTML=original;
+ }
+});
