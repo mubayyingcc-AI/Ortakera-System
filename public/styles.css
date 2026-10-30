@@ -4,3 +4,10 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 
 .location-dot{width:7px;height:7px;border-radius:50%;background:#e51b2b;box-shadow:0 0 0 4px #e51b2b22}
+
+/* Live enquiry form */
+.consent-row{display:flex;align-items:flex-start;gap:11px;font-size:.82rem;line-height:1.55;color:inherit}
+.consent-row input{flex:0 0 auto;width:17px;height:17px;margin-top:3px;accent-color:#e51b2b}
+.consent-row a{text-decoration:underline;text-underline-offset:3px}
+.form-submit:disabled{opacity:.65;cursor:wait}
+#formNote{overflow-wrap:anywhere}
