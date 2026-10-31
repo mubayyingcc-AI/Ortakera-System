@@ -9,7 +9,7 @@ for(const id of ['candidateForm','employerForm']){
   event.preventDefault();if(!form.reportValidity())return;
   const button=form.querySelector('[type="submit"]'),note=form.querySelector('.form-foot'),original=button.innerHTML;
   const data=Object.fromEntries(new FormData(form).entries());
-  const payload={name:data.name,email:data.email,organization:data.organization||'',interest:form.dataset.interest,message:formMessage(form),consent:data.consent==='yes',locale:'en'};
+  const fields=Object.fromEntries(Object.entries(data).filter(([key])=>!['name','email','organization','consent'].includes(key)));\n  const payload={name:data.name,email:data.email,organization:data.organization||'',interest:form.dataset.interest,message:formMessage(form),fields,consent:data.consent==='yes',locale:'en'};
   button.disabled=true;button.textContent='Submitting…';note.textContent='Sending securely…';
   try{const response=await fetch('/api/v1/enquiries',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Submission failed.');
    note.textContent='Received. Your reference is '+result.reference+'. Our team will review your registration.';
@@ -18,3 +18,7 @@ for(const id of ['candidateForm','employerForm']){
   finally{button.disabled=false;button.innerHTML=original;}
  });
 }
+
+async function loadPublishedJobs(){const host=document.getElementById('publishedJobs');if(!host)return;try{const response=await fetch('/api/v1/jobs',{headers:{accept:'application/json'}});const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to load jobs');if(!data.items.length){host.innerHTML='<div class="published-job-empty">No verified vacancies are open at the moment. Register your interest and we will review relevant opportunities as they become available.</div>';return}host.innerHTML=data.items.map(job=>'<article class="published-job"><div><div class="published-job-meta">'+escapeHtml(job.sector)+' · '+escapeHtml(job.location)+'</div><h3>'+escapeHtml(job.title)+'</h3><p>'+escapeHtml(job.description)+'</p><p>'+escapeHtml(job.employment_type)+' · '+escapeHtml(job.headcount)+' position(s)'+(job.gross_pay_range?' · '+escapeHtml(job.gross_pay_range):'')+'</p></div><a class="btn btn-red" href="#candidate">Register interest ↗</a></article>').join('')}catch{host.innerHTML='<div class="published-job-empty">Published opportunities could not be loaded right now.</div>'}}
+function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+loadPublishedJobs();
