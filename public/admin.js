@@ -20,3 +20,5 @@ $('loadCandidates')?.addEventListener('click',()=>loadEmployment('candidates'));
 $('loadEmployers')?.addEventListener('click',()=>loadEmployment('employer-requirements'));
 $('loadVacancies')?.addEventListener('click',()=>loadEmployment('vacancies'));
 $('vacancyForm')?.addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,button=form.querySelector('[type=submit]'),message=$('vacancyMessage');button.disabled=true;message.textContent='Saving draft…';try{const payload=Object.fromEntries(new FormData(form).entries());payload.headcount=Number(payload.headcount);const data=await api('/api/v1/admin/vacancies',{method:'POST',body:JSON.stringify(payload)});message.textContent='Saved '+data.item.reference_code+' as a private draft.';form.reset();await loadEmployment('vacancies')}catch(error){message.textContent=error.message}finally{button.disabled=false}});
+
+$('loadApplications')?.addEventListener('click',()=>loadEmployment('applications'));
