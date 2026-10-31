@@ -11,3 +11,13 @@
 .consent-row a{text-decoration:underline;text-underline-offset:3px}
 .form-submit:disabled{opacity:.65;cursor:wait}
 #formNote{overflow-wrap:anywhere}
+
+/* Employment network entry point */
+.employment-bridge{background:#f1f4f6;padding:78px 0}
+.employment-bridge-inner{display:grid;grid-template-columns:1.2fr .8fr;gap:55px;align-items:center}
+.employment-bridge h2{font:800 clamp(32px,4vw,48px)/1.08 Manrope,sans-serif;letter-spacing:-2px;color:#07182e;margin:18px 0}
+.employment-bridge h2 em{font-style:normal;color:#e51b2b}
+.employment-bridge p{max-width:650px;color:#596777;line-height:1.8;font-size:14px}
+.employment-bridge-actions{display:grid;gap:12px;justify-items:stretch}
+.employment-bridge-actions .btn{justify-content:center;text-align:center;padding:17px}
+@media(max-width:760px){.employment-bridge{padding:62px 0}.employment-bridge-inner{grid-template-columns:1fr;gap:28px}}
