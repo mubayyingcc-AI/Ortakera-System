@@ -230,6 +230,10 @@ async function handleAdminApi(req,res,url) {
   const admin = await requireAdmin(req,res);
   if (!admin) return;
   if (req.method === 'GET' && url.pathname === '/api/v1/admin/session') return json(res,200,{ok:true,email:admin.email});
+  if (req.method === 'GET' && url.pathname === '/api/v1/admin/applications') {
+    const result=await pool.query(`SELECT a.id,a.status,a.created_at,v.reference_code AS vacancy_reference,v.title,e.reference_code AS candidate_reference,e.name,e.email FROM job_applications a JOIN vacancies v ON v.id=a.vacancy_id JOIN enquiries e ON e.id=a.candidate_enquiry_id ORDER BY a.created_at DESC LIMIT 300`);
+    return json(res,200,{items:result.rows});
+  }
   if (req.method === 'GET' && url.pathname === '/api/v1/admin/candidates') {
     const result=await pool.query(`SELECT e.id,e.reference_code,e.name,e.email,e.status,e.created_at,c.current_location,c.sector,c.preferred_role,c.experience_level,c.languages,c.work_eligibility,c.details FROM candidate_profiles c JOIN enquiries e ON e.id=c.id ORDER BY e.created_at DESC LIMIT 200`);
     return json(res,200,{items:result.rows});
@@ -257,11 +261,16 @@ async function handleAdminApi(req,res,url) {
     if(!sameOrigin(req)) return json(res,403,{error:'Request origin rejected.'});
     let body;try{body=await readBody(req,3000)}catch(error){return json(res,error.status||400,{error:error.message})}
     const allowed=['draft','under_review','verified','published','closed','rejected'];
-    if(!allowed.includes(body.status))return json(res,422,{error:'Invalid vacancy status.'});
+    if(body.status!==undefined&&!allowed.includes(body.status))return json(res,422,{error:'Invalid vacancy status.'});
+    if(body.employer_verified!==undefined&&typeof body.employer_verified!=='boolean')return json(res,422,{error:'employer_verified must be boolean.'});
+    if(body.legal_route_checked!==undefined&&typeof body.legal_route_checked!=='boolean')return json(res,422,{error:'legal_route_checked must be boolean.'});
     const current=await pool.query('SELECT * FROM vacancies WHERE id=$1',[vacancyMatch[1]]);
     if(!current.rowCount)return json(res,404,{error:'Vacancy not found.'});
-    if(body.status==='published'&&(!current.rows[0].employer_verified||!current.rows[0].legal_route_checked))return json(res,422,{error:'Publishing is blocked until employer verification and legal-route review are both confirmed.'});
-    const updated=await pool.query('UPDATE vacancies SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING *',[body.status,vacancyMatch[1]]);
+    const employerVerified=body.employer_verified??current.rows[0].employer_verified;
+    const legalChecked=body.legal_route_checked??current.rows[0].legal_route_checked;
+    const nextStatus=body.status??current.rows[0].status;
+    if(nextStatus==='published'&&(!employerVerified||!legalChecked))return json(res,422,{error:'Publishing is blocked until employer verification and legal-route review are both confirmed.'});
+    const updated=await pool.query('UPDATE vacancies SET status=$1,employer_verified=$2,legal_route_checked=$3,updated_at=NOW() WHERE id=$4 RETURNING *',[nextStatus,employerVerified,legalChecked,vacancyMatch[1]]);
     await pool.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'vacancy.status.changed','vacancy',vacancyMatch[1],JSON.stringify(current.rows[0]),JSON.stringify(updated.rows[0])]);
     return json(res,200,{ok:true,item:updated.rows[0]});
   }
@@ -388,6 +397,15 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
+  const applyMatch=url.pathname.match(/^\/api\/v1\/jobs\/([A-Z0-9-]+)\/apply$/i);
+  if(req.method==='POST'&&applyMatch){
+    const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
+    if(!rateAllowed('apply:'+ip))return json(res,429,{error:'Too many applications from this connection. Try again later.'});
+    let body;try{body=await readBody(req,2000)}catch(error){return json(res,error.status||400,{error:error.message})}
+    const email=clean(body.email,254).toLowerCase(),candidateRef=clean(body.candidate_reference,40).toUpperCase();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!candidateRef)return json(res,422,{error:'Enter the email and candidate reference from your registration.'});
+    try{const vacancy=await pool.query("SELECT id FROM vacancies WHERE reference_code=$1 AND status='published' AND employer_verified=TRUE AND legal_route_checked=TRUE",[applyMatch[1].toUpperCase()]);if(!vacancy.rowCount)return json(res,404,{error:'This opportunity is not available.'});const candidate=await pool.query("SELECT e.id FROM enquiries e JOIN candidate_profiles c ON c.id=e.id WHERE e.reference_code=$1 AND LOWER(e.email)=$2 AND e.interest='employment_candidate'",[candidateRef,email]);if(!candidate.rowCount)return json(res,404,{error:'Candidate registration could not be verified. Check your reference and email.'});const id=randomUUID();await pool.query("INSERT INTO job_applications(id,vacancy_id,candidate_enquiry_id) VALUES($1,$2,$3)",[id,vacancy.rows[0].id,candidate.rows[0].id]);return json(res,201,{ok:true,application_id:id,status:'received'});}catch(error){if(error.code==='23505')return json(res,409,{error:'You have already applied for this opportunity.'});console.error('Job application failed:',error.code||error.name);return json(res,500,{error:'Could not submit your application.'})}
+  }
   if (req.method === 'GET' && url.pathname === '/api/v1/jobs') {
     try { const result=await pool.query(`SELECT reference_code,title,sector,location,description,gross_pay_range,employment_type,headcount,created_at FROM vacancies WHERE status='published' AND employer_verified=TRUE AND legal_route_checked=TRUE ORDER BY created_at DESC LIMIT 100`); return json(res,200,{items:result.rows}); }
     catch { return json(res,500,{error:'Could not load published opportunities.'}); }
