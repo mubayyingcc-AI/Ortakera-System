@@ -1,0 +1,59 @@
+
+.employment-hero{position:relative;overflow:hidden;background:#07182e;color:#fff;min-height:570px;display:flex;align-items:center}
+.employment-hero:before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#061327f5 0%,#061327e8 54%,#06132780 100%),url('/images/istanbul-bosphorus-hero.jpg') center/cover}
+.employment-hero-inner{position:relative;z-index:1;padding:105px 0 90px}
+.employment-hero h1{font:800 clamp(42px,6vw,72px)/1.04 Manrope,sans-serif;letter-spacing:-3px;margin:24px 0}
+.employment-hero h1 em{font-style:normal;color:#ff5661}
+.employment-hero p{max-width:710px;color:#d8e0e9;line-height:1.8;font-size:16px}
+.employment-hero-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}
+.employment-trustline{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:46px;color:#c3ceda;font-size:11px}
+.employment-trustline i{width:4px;height:4px;border-radius:50%;background:#e51b2b}
+.employment-intro{padding-top:90px;padding-bottom:40px;display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:end}
+.employment-intro h2,.employment-standards h2{font:800 clamp(32px,4vw,48px)/1.08 Manrope,sans-serif;letter-spacing:-2px;color:#07182e;margin:18px 0}
+.employment-intro h2 em,.employment-standards h2 em{font-style:normal;color:#e51b2b}
+.employment-intro>p{color:#596777;line-height:1.85;font-size:14px}
+.employment-paths{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding-top:25px;padding-bottom:90px}
+.employment-path-card{padding:35px;background:#f2f5f7;border:1px solid #e3e9ee}
+.employment-path-card.employer-path{background:#07182e;color:white}
+.path-number{font-size:10px;letter-spacing:1.6px;color:#e51b2b;font-weight:800}
+.employment-path-card h3{font:800 25px Manrope,sans-serif;margin:18px 0 12px}
+.employment-path-card p{font-size:13px;line-height:1.8;color:#647181;min-height:90px}
+.employment-path-card.employer-path p{color:#c6d0dc}
+.employment-path-card a{display:inline-block;margin-top:18px;color:#e51b2b;font-weight:800;font-size:12px}
+.employment-form-section{background:#07182e;color:#fff;padding:95px 0}
+.employment-form-grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:65px;align-items:start}
+.employment-form-copy h2{font:800 clamp(36px,4.4vw,54px)/1.08 Manrope,sans-serif;letter-spacing:-2px;margin:20px 0}
+.employment-form-copy h2 em{font-style:normal;color:#ff5661}
+.employment-form-copy>p,.employment-form-copy li{color:#c7d2de;font-size:14px;line-height:1.8}
+.employment-form-copy ul{padding-left:19px;margin:25px 0}
+.candidate-note{display:grid;gap:8px;border-left:3px solid #e51b2b;padding:15px 18px;background:#ffffff0b;margin-top:28px}
+.candidate-note b{font-size:12px}.candidate-note span{font-size:12px;line-height:1.7;color:#c7d2de}
+.employment-form{background:#fff;color:#07182e;padding:30px;display:grid;gap:16px}
+.employment-form .form-head{display:grid;gap:6px;margin-bottom:4px}
+.employment-form .form-head b{font:800 19px Manrope,sans-serif}
+.employment-form .form-head small{font-size:9px;letter-spacing:1px;color:#e51b2b;font-weight:800}
+.employment-form label:not(.consent-row){display:grid;gap:7px;font-size:11px;font-weight:700;color:#27394c}
+.employment-form input,.employment-form select,.employment-form textarea{width:100%;border:1px solid #dbe2e8;background:#fbfcfd;padding:13px 12px;font:13px 'DM Sans',sans-serif;color:#07182e;border-radius:2px;outline-color:#e51b2b}
+.employment-form textarea{resize:vertical}
+.employment-form .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.employment-form .consent-row{color:#5c6876}
+.employment-form .form-foot{color:#647181;font-size:11px;line-height:1.6;margin:0}
+.employer-section{padding:95px 0;background:#f3f5f7}
+.employer-grid{grid-template-columns:.85fr 1.15fr}
+.employer-section .employment-form-copy h2{color:#07182e}
+.employer-section .employment-form-copy>p,.employer-section .employment-form-copy li{color:#566474}
+.employer-section .candidate-note{background:#fff}
+.employer-section .candidate-note span{color:#596777}
+.employment-standards{padding-top:95px;padding-bottom:95px}
+.employment-standard-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#e0e6eb;border:1px solid #e0e6eb}
+.employment-standard-grid article{background:#fff;padding:25px;min-height:190px}
+.employment-standard-grid article>b{font-size:11px;color:#e51b2b}
+.employment-standard-grid h3{font:800 16px Manrope,sans-serif;margin:20px 0 9px}
+.employment-standard-grid p{font-size:12px;line-height:1.7;color:#667383}
+.employment-final{background:#07182e;color:#fff;text-align:center;padding:80px 0}
+.employment-final h2{font:800 clamp(34px,5vw,54px)/1.1 Manrope,sans-serif;letter-spacing:-2px}
+.employment-final h2 em{font-style:normal;color:#ff5661}
+.employment-final p{color:#c4d0dc;margin:20px 0 28px}
+.employment-nav{display:flex}
+@media(max-width:760px){.employment-hero-inner{padding:80px 0}.employment-hero h1{font-size:43px;letter-spacing:-2px}.employment-intro,.employment-paths,.employment-form-grid{grid-template-columns:1fr;gap:28px}.employment-intro{padding-top:70px}.employment-paths{padding-bottom:65px}.employment-form-section,.employer-section{padding:65px 0}.employment-form{padding:22px 16px}.employment-form .form-row{grid-template-columns:1fr}.employment-standard-grid{grid-template-columns:1fr 1fr}.employment-standards{padding-top:70px;padding-bottom:70px}.employment-trustline{line-height:1.8}.employment-nav{display:none}}
+@media(max-width:420px){.employment-standard-grid{grid-template-columns:1fr}}
