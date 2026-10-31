@@ -242,7 +242,7 @@ async function handleEnquiry(req, res) {
   const message = clean(body.message, 4000);
   const locale = ['en','tr','ar','fr','de'].includes(body.locale) ? body.locale : 'en';
   const consent = body.consent === true;
-  const validInterests = ['business','partnership','capability','other'];
+  const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring'];
 
   if (name.length < 2) return json(res, 422, { error:'Please enter your name.' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(res, 422, { error:'Please enter a valid email address.' });
