@@ -294,6 +294,7 @@ const server = http.createServer(async (req, res) => {
   catch { return json(res, 400, { error:'Invalid URL path' }); }
   if (pathname === '/') pathname = '/index.html';
   if (pathname === '/admin') pathname = '/admin.html';
+  if (pathname === '/employment') pathname = '/employment.html';
   const file = resolve(root, `.${pathname}`);
   if (file !== root && !file.startsWith(root + sep)) return json(res, 400, { error:'Invalid path' });
   try {
