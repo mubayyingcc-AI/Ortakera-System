@@ -1,50 +1,33 @@
 # Ortakera backend implementation status
 
-## Runtime and deployment
-- Node.js 20+
-- PostgreSQL through Railway
-- Node HTTP server; parameterized SQL through `pg`
-- Five public interface languages: English, Turkish, Arabic (RTL), French and German
+## Runtime
+- Node.js 20+, PostgreSQL, Railway deployment target.
+- Public enquiry API and signed-cookie administrator console retained.
+
+## Employment data model
+- candidate_profiles: structured candidate preferences linked to candidate enquiry reference.
+- employer_requirements: structured hiring requirements linked to employer enquiry reference.
+- vacancies: staff-created drafts with employer verification and legal-route review flags.
+- job_applications: candidate applications linked to published vacancies and candidate records.
 
 ## Public endpoints
-- `GET /health` — application/database readiness; returns 503 if database unavailable.
-- `GET /api/v1/health` — API/database diagnostic.
-- `POST /api/v1/enquiries` — validates and stores consented enquiries.
+- GET /api/v1/jobs returns only vacancies marked published with both employer_verified and legal_route_checked true.
+- POST /api/v1/jobs/:reference/apply validates the candidate registration reference and matching email; duplicate applications are rejected.
+- POST /api/v1/enquiries stores general enquiries and structured candidate/employer records transactionally.
 
 ## Private staff endpoints
-- `GET /admin` — private staff console entry page (noindex; not a security boundary).
-- `POST /api/v1/admin/login` — verifies configured admin email and scrypt password hash; issues signed, HttpOnly, Secure, SameSite=Strict session cookie.
-- `POST /api/v1/admin/logout` — clears the session cookie.
-- `GET /api/v1/admin/session` — checks current session.
-- `GET /api/v1/admin/enquiries` — lists persisted enquiries with status filter.
-- `PATCH /api/v1/admin/enquiries/:id` — updates status inside a transaction and writes audit record.
-- `GET /api/v1/admin/audit` — lists latest 100 admin audit events.
+- GET /admin and /api/v1/admin/* require the configured administrator session.
+- GET /api/v1/admin/candidates, employer-requirements, vacancies and applications provide pipeline views.
+- POST /api/v1/admin/vacancies creates private vacancy drafts.
+- PATCH /api/v1/admin/vacancies/:id updates status and employer/legal review flags; publication is blocked until both flags are true.
 
-## Administrator setup (required)
-Do not commit passwords or session secrets.
-1. Generate a password hash locally from the repository root:
-   `npm run admin:hash -- "your-long-unique-password"`
-   Use a password of at least 12 characters. Copy the output only into Railway's `ADMIN_PASSWORD_HASH` variable. The hash format is `saltHex:derivedKeyHex`.
-2. Generate a cryptographically random session secret of at least 32 characters, e.g. `node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"`.
-3. In Railway, set the web service variables:
-   - `ADMIN_EMAIL` = the administrator's dedicated email address (lowercase).
-   - `ADMIN_PASSWORD_HASH` = the generated hash.
-   - `SESSION_SECRET` = the generated random secret.
-4. Wait for the Railway deployment to complete. Visit `/admin` on the live domain and sign in.
+## Important limits
+- Candidate registration is not a full account. Application identity currently uses the candidate reference and matching email; password accounts, profile editing and recovery are not implemented.
+- Employer verification and legal-route flags are staff attestations; the platform does not independently verify company documents, work permit eligibility, lawyer advice or İŞKUR authorisation.
+- Do not mark review flags true without underlying evidence and qualified review. A flag is not proof of government approval or a work permit.
+- No automated candidate ranking, messaging, interview scheduling, notifications, document uploads or WorkProof onboarding evidence yet.
+- International recruitment must be handled with qualified Turkish legal counsel and appropriately licensed recruitment partners.
+- Never collect passport numbers, identity documents, bank details or sensitive personal data through the public forms.
 
-The admin console remains closed until all three variables are set. Do not put the raw password into Railway, source files, GitHub issues, or chat. Rotate the password by generating a new hash and replacing the variable. Rotate sessions by replacing `SESSION_SECRET`.
-
-## Data boundary and roadmap
-Currently persisted:
-- Enquiries and their workflow status.
-- Administrative status-change audit events.
-
-Not yet implemented:
-- Staff invitations/multiple staff roles and permissions.
-- Business organization accounts and structured requirements.
-- Public opportunity publication and eligibility.
-- Capability profiles, credential review and matching.
-- Applications, delivery milestones and WorkProof evidence.
-- Email notifications and user self-service account recovery.
-
-Do not represent these future modules as live functionality. Enquiry status changes do not imply a job, contract, partnership, or verified outcome.
+## Administrator setup
+Keep ADMIN_EMAIL, ADMIN_PASSWORD_HASH and SESSION_SECRET only in deployment secrets. Generate password hashes locally; never commit secrets.
