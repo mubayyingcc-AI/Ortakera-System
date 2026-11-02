@@ -112,6 +112,8 @@ async function migrate() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     ALTER TABLE job_checks ADD COLUMN IF NOT EXISTS paid_review_requested BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE job_checks DROP CONSTRAINT IF EXISTS job_checks_check_type_check;
+    ALTER TABLE job_checks ADD CONSTRAINT job_checks_check_type_check CHECK (check_type IN ('job_offer','work_permit','consular_appointment','invitation_letter','recruitment_agent'));
     ALTER TABLE job_checks ADD COLUMN IF NOT EXISTS candidate_market TEXT NOT NULL DEFAULT 'international' CHECK (candidate_market IN ('local','international'));
     CREATE INDEX IF NOT EXISTS job_checks_status_idx ON job_checks(review_status,created_at DESC);
     CREATE TABLE IF NOT EXISTS job_subscriptions (
