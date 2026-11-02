@@ -254,7 +254,7 @@ async function handleAdminApi(req,res,url) {
     const result=await pool.query(`SELECT p.*,e.reference_code,e.name,e.email,e.organization,e.created_at AS enquiry_created_at FROM recruitment_partners p JOIN enquiries e ON e.id=p.id ORDER BY p.created_at DESC LIMIT 200`);
     return json(res,200,{items:result.rows});
   }
-  const partnerMatch=url.pathname.match(/^\\/api\\/v1\\/admin\\/recruitment-partners\\/([0-9a-f-]{36})$/i);
+  const partnerMatch=url.pathname.match(/^\/api\/v1\/admin\/recruitment-partners\/([0-9a-f-]{36})$/i);
   if(req.method==='PATCH'&&partnerMatch){
     if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
     let body;try{body=await readBody(req,1500)}catch(error){return json(res,error.status||400,{error:error.message})}
@@ -288,7 +288,7 @@ async function handleAdminApi(req,res,url) {
     await pool.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,after_state) VALUES($1,$2,$3,$4,$5::jsonb)',[admin.email,'vacancy.created','vacancy',id,JSON.stringify(result.rows[0])]);
     return json(res,201,{ok:true,item:result.rows[0]});
   }
-  const vacancyMatch=url.pathname.match(/^\\/api\\/v1\\/admin\\/vacancies\\/([0-9a-f-]{36})$/i);
+  const vacancyMatch=url.pathname.match(/^\/api\/v1\/admin\/vacancies\/([0-9a-f-]{36})$/i);
   if(req.method==='PATCH'&&vacancyMatch){
     if(!sameOrigin(req)) return json(res,403,{error:'Request origin rejected.'});
     let body;try{body=await readBody(req,3000)}catch(error){return json(res,error.status||400,{error:error.message})}
