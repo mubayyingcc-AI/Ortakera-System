@@ -56,3 +56,12 @@ Keep ADMIN_EMAIL, ADMIN_PASSWORD_HASH and SESSION_SECRET only in deployment secr
 ## Recruitment partner review controls
 - Staff console loads recruitment partner applications and exposes the review lifecycle controls.
 - Vacancy review controls expose employer verification, legal-route review and publication status. Publishing remains blocked unless both verification booleans are true.
+
+
+## Job / permit / appointment authenticity review
+- Public employment page accepts structured job-offer, work-permit and consular-appointment review requests through the existing enquiry transaction.
+- The `job_checks` table stores the claimed employer, optional agency, role, location, appointment date, claimed status, optional last four reference characters, and user-provided description. It deliberately does not collect passport numbers, national IDs, complete application references, credentials or document uploads.
+- Private staff queue: GET `/api/v1/admin/job-checks`; staff PATCH `/api/v1/admin/job-checks/:id` records review status, findings, reviewer and timestamp, plus audit log.
+- `official_source_confirmed` requires staff to record the official source and what was checked. This is an internal review record, not a government determination.
+- Official sources linked on the page: Ministry e-İzin (`https://calismaizni.csgb.gov.tr/en/`) and official QR permit verification (`https://izinsorgula.csgb.gov.tr/`). Appointment authenticity may require confirmation directly with the relevant Turkish foreign mission or its officially designated appointment provider.
+- No automatic government API integration exists. No uploaded documents are accepted by this initial workflow.
