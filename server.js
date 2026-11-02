@@ -111,7 +111,16 @@ async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE job_checks ADD COLUMN IF NOT EXISTS candidate_market TEXT NOT NULL DEFAULT 'international' CHECK (candidate_market IN ('local','international'));
     CREATE INDEX IF NOT EXISTS job_checks_status_idx ON job_checks(review_status,created_at DESC);
+    CREATE TABLE IF NOT EXISTS job_subscriptions (
+      id UUID PRIMARY KEY REFERENCES enquiries(id) ON DELETE CASCADE,
+      candidate_market TEXT NOT NULL CHECK (candidate_market IN ('local','international','both')),
+      preferred_sectors TEXT NOT NULL, preferred_locations TEXT, preferred_roles TEXT,
+      work_authorisation TEXT, frequency TEXT NOT NULL DEFAULT 'weekly' CHECK (frequency IN ('immediate','weekly')),
+      active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS job_subscriptions_active_idx ON job_subscriptions(active,created_at DESC);
     CREATE TABLE IF NOT EXISTS vacancies (
       id UUID PRIMARY KEY,
       reference_code TEXT NOT NULL UNIQUE,
@@ -409,7 +418,7 @@ async function handleEnquiry(req, res) {
   const locale = ['en','tr','ar','fr','de'].includes(body.locale) ? body.locale : 'en';
   const consent = body.consent === true;
   const fields = body.fields && typeof body.fields === 'object' ? body.fields : {};
-  const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring','recruitment_partner','job_check'];
+  const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring','recruitment_partner','job_check','job_subscription'];
 
   if (name.length < 2) return json(res, 422, { error:'Please enter your name.' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(res, 422, { error:'Please enter a valid email address.' });
@@ -431,9 +440,14 @@ async function handleEnquiry(req, res) {
         await client.query('INSERT INTO candidate_profiles(id,current_location,sector,preferred_role,experience_level,languages,work_eligibility,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,location,sector,role,experience,languages,eligibility,details]);
       }
       if(interest==='job_check'){
-        const checkType=clean(fields.check_type,32),employer=clean(fields.claimed_employer,180),agency=clean(fields.claimed_agency,180)||null,jobTitle=clean(fields.job_title,160)||null,workLocation=clean(fields.work_location,160)||null,appointmentDate=clean(fields.appointment_date,10)||null,claimedStatus=clean(fields.claimed_status,100),referenceLast4=clean(fields.reference_last4,4)||null,evidence=clean(fields.evidence_description,2500);
-        if(!['job_offer','work_permit','consular_appointment'].includes(checkType)||!employer||!claimedStatus||evidence.length<20||(referenceLast4&&!/^[A-Za-z0-9]{4}$/.test(referenceLast4))||(appointmentDate&&!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)))throw Object.assign(new Error('Complete the verification request details. Only the last four characters of a reference may be provided.'),{status:422});
-        await client.query('INSERT INTO job_checks(id,check_type,claimed_employer,claimed_agency,job_title,work_location,appointment_date,claimed_status,reference_last4,evidence_description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,checkType,employer,agency,jobTitle,workLocation,appointmentDate,claimedStatus,referenceLast4,evidence]);
+        const checkType=clean(fields.check_type,32),market=clean(fields.candidate_market,20),employer=clean(fields.claimed_employer,180),agency=clean(fields.claimed_agency,180)||null,jobTitle=clean(fields.job_title,160)||null,workLocation=clean(fields.work_location,160)||null,appointmentDate=clean(fields.appointment_date,10)||null,claimedStatus=clean(fields.claimed_status,100),referenceLast4=clean(fields.reference_last4,4)||null,evidence=clean(fields.evidence_description,2500);
+        if(!['local','international'].includes(market)||!['job_offer','work_permit','consular_appointment','invitation_letter','recruitment_agent'].includes(checkType)||!employer||!claimedStatus||evidence.length<20||(referenceLast4&&!/^[A-Za-z0-9]{4}$/.test(referenceLast4))||(appointmentDate&&!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)))throw Object.assign(new Error('Complete the verification request details. Only the last four characters of a reference may be provided.'),{status:422});
+        await client.query('INSERT INTO job_checks(id,check_type,candidate_market,claimed_employer,claimed_agency,job_title,work_location,appointment_date,claimed_status,reference_last4,evidence_description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[id,checkType,market,employer,agency,jobTitle,workLocation,appointmentDate,claimedStatus,referenceLast4,evidence]);
+      }
+      if(interest==='job_subscription'){
+        const market=clean(fields.candidate_market,20),sectors=clean(fields.preferred_sectors,300),locations=clean(fields.preferred_locations,300)||null,roles=clean(fields.preferred_roles,300)||null,eligibility=clean(fields.work_authorisation,80)||null,frequency=clean(fields.frequency,20)||'weekly';
+        if(!['local','international','both'].includes(market)||!sectors||!['immediate','weekly'].includes(frequency))throw Object.assign(new Error('Choose your job market, at least one sector and alert frequency.'),{status:422});
+        await client.query('INSERT INTO job_subscriptions(id,candidate_market,preferred_sectors,preferred_locations,preferred_roles,work_authorisation,frequency) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,market,sectors,locations,roles,eligibility,frequency]);
       }
       if(interest==='recruitment_partner'){
         const agency=clean(fields.agency_name,180),jurisdiction=clean(fields.jurisdiction,120),licence=clean(fields.licence_status,30),licenceRef=clean(fields.licence_reference,160)||null,website=clean(fields.website,240)||null,regions=clean(fields.service_regions,240),specialisms=clean(fields.specialisms,500),feePolicy=clean(fields.candidate_fee_policy,40),compliance=fields.compliance_declaration===true||fields.compliance_declaration==='yes';
