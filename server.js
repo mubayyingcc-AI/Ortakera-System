@@ -77,6 +77,22 @@ async function migrate() {
       requirements TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS recruitment_partners (
+      id UUID PRIMARY KEY REFERENCES enquiries(id) ON DELETE CASCADE,
+      agency_name TEXT NOT NULL,
+      jurisdiction TEXT NOT NULL,
+      licence_status TEXT NOT NULL CHECK (licence_status IN ('licensed','applying','not_required','unsure')),
+      licence_reference TEXT,
+      website TEXT,
+      service_regions TEXT NOT NULL,
+      specialisms TEXT NOT NULL,
+      candidate_fee_policy TEXT NOT NULL CHECK (candidate_fee_policy IN ('no_candidate_fees','other_or_unclear')),
+      compliance_declaration BOOLEAN NOT NULL DEFAULT FALSE,
+      review_status TEXT NOT NULL DEFAULT 'received' CHECK (review_status IN ('received','due_diligence','approved','declined','suspended')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS recruitment_partners_status_idx ON recruitment_partners(review_status,created_at DESC);
     CREATE TABLE IF NOT EXISTS vacancies (
       id UUID PRIMARY KEY,
       reference_code TEXT NOT NULL UNIQUE,
@@ -234,6 +250,22 @@ async function handleAdminApi(req,res,url) {
     const result=await pool.query(`SELECT a.id,a.status,a.created_at,v.reference_code AS vacancy_reference,v.title,e.reference_code AS candidate_reference,e.name,e.email FROM job_applications a JOIN vacancies v ON v.id=a.vacancy_id JOIN enquiries e ON e.id=a.candidate_enquiry_id ORDER BY a.created_at DESC LIMIT 300`);
     return json(res,200,{items:result.rows});
   }
+  if (req.method === 'GET' && url.pathname === '/api/v1/admin/recruitment-partners') {
+    const result=await pool.query(`SELECT p.*,e.reference_code,e.name,e.email,e.organization,e.created_at AS enquiry_created_at FROM recruitment_partners p JOIN enquiries e ON e.id=p.id ORDER BY p.created_at DESC LIMIT 200`);
+    return json(res,200,{items:result.rows});
+  }
+  const partnerMatch=url.pathname.match(/^\\/api\\/v1\\/admin\\/recruitment-partners\\/([0-9a-f-]{36})$/i);
+  if(req.method==='PATCH'&&partnerMatch){
+    if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+    let body;try{body=await readBody(req,1500)}catch(error){return json(res,error.status||400,{error:error.message})}
+    const allowed=['received','due_diligence','approved','declined','suspended'];
+    if(!allowed.includes(body.review_status))return json(res,422,{error:'Invalid partner review status.'});
+    const current=await pool.query('SELECT * FROM recruitment_partners WHERE id=$1',[partnerMatch[1]]);
+    if(!current.rowCount)return json(res,404,{error:'Recruitment partner not found.'});
+    const updated=await pool.query('UPDATE recruitment_partners SET review_status=$1,updated_at=NOW() WHERE id=$2 RETURNING *',[body.review_status,partnerMatch[1]]);
+    await pool.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'recruitment_partner.reviewed','recruitment_partner',partnerMatch[1],JSON.stringify(current.rows[0]),JSON.stringify(updated.rows[0])]);
+    return json(res,200,{ok:true,item:updated.rows[0]});
+  }
   if (req.method === 'GET' && url.pathname === '/api/v1/admin/candidates') {
     const result=await pool.query(`SELECT e.id,e.reference_code,e.name,e.email,e.status,e.created_at,c.current_location,c.sector,c.preferred_role,c.experience_level,c.languages,c.work_eligibility,c.details FROM candidate_profiles c JOIN enquiries e ON e.id=c.id ORDER BY e.created_at DESC LIMIT 200`);
     return json(res,200,{items:result.rows});
@@ -340,7 +372,7 @@ async function handleEnquiry(req, res) {
   const locale = ['en','tr','ar','fr','de'].includes(body.locale) ? body.locale : 'en';
   const consent = body.consent === true;
   const fields = body.fields && typeof body.fields === 'object' ? body.fields : {};
-  const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring'];
+  const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring','recruitment_partner'];
 
   if (name.length < 2) return json(res, 422, { error:'Please enter your name.' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(res, 422, { error:'Please enter a valid email address.' });
@@ -360,6 +392,11 @@ async function handleEnquiry(req, res) {
         const location=clean(fields.location,120),sector=clean(fields.sector,100),role=clean(fields.role,160),experience=clean(fields.experience,40),languages=clean(fields.languages,160),eligibility=clean(fields.eligibility,80),details=clean(fields.details,1500);
         if(!location||!sector||!role||!experience||!eligibility)throw Object.assign(new Error('Candidate profile is missing required structured fields.'),{status:422});
         await client.query('INSERT INTO candidate_profiles(id,current_location,sector,preferred_role,experience_level,languages,work_eligibility,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,location,sector,role,experience,languages,eligibility,details]);
+      }
+      if(interest==='recruitment_partner'){
+        const agency=clean(fields.agency_name,180),jurisdiction=clean(fields.jurisdiction,120),licence=clean(fields.licence_status,30),licenceRef=clean(fields.licence_reference,160)||null,website=clean(fields.website,240)||null,regions=clean(fields.service_regions,240),specialisms=clean(fields.specialisms,500),feePolicy=clean(fields.candidate_fee_policy,40),compliance=fields.compliance_declaration===true||fields.compliance_declaration==='yes';
+        if(!agency||!jurisdiction||!['licensed','applying','not_required','unsure'].includes(licence)||!regions||!specialisms||!['no_candidate_fees','other_or_unclear'].includes(feePolicy)||!compliance)throw Object.assign(new Error('Complete the agency details and compliance declaration.'),{status:422});
+        await client.query('INSERT INTO recruitment_partners(id,agency_name,jurisdiction,licence_status,licence_reference,website,service_regions,specialisms,candidate_fee_policy,compliance_declaration) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,agency,jurisdiction,licence,licenceRef,website,regions,specialisms,feePolicy,compliance]);
       }
       if(interest==='employer_hiring'){
         const location=clean(fields.location,120),sector=clean(fields.sector,100),roles=clean(fields.roles,240),headcount=Number(fields.headcount),pay=clean(fields.pay,120)||null,timeline=clean(fields.timeline,60),requirements=clean(fields.details,2000);
