@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "admin:hash": "node scripts/hash-admin-password.js"
+    "admin:hash": "node scripts/hash-admin-password.js",
+    "check": "node --check server.js && node --check public/app.js && node --check public/employment.js && node --check public/admin.js && node --check scripts/hash-admin-password.js"
   },
   "engines": {
     "node": ">=20"
