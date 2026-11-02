@@ -54,3 +54,4 @@ $('vacancyForm')?.addEventListener('submit',async event=>{event.preventDefault()
 $('loadApplications')?.addEventListener('click',()=>loadEmployment('applications'));
 $('loadPartners')?.addEventListener('click',()=>loadEmployment('recruitment-partners'));
 $('loadJobChecks')?.addEventListener('click',()=>loadEmployment('job-checks'));
+$('loadSubscriptions')?.addEventListener('click',()=>loadEmployment('job-subscriptions'));
