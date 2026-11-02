@@ -111,6 +111,7 @@ async function migrate() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE job_checks ADD COLUMN IF NOT EXISTS paid_review_requested BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE job_checks ADD COLUMN IF NOT EXISTS candidate_market TEXT NOT NULL DEFAULT 'international' CHECK (candidate_market IN ('local','international'));
     CREATE INDEX IF NOT EXISTS job_checks_status_idx ON job_checks(review_status,created_at DESC);
     CREATE TABLE IF NOT EXISTS job_subscriptions (
@@ -278,6 +279,10 @@ async function handleAdminApi(req,res,url) {
     const result=await pool.query(`SELECT a.id,a.status,a.created_at,v.reference_code AS vacancy_reference,v.title,e.reference_code AS candidate_reference,e.name,e.email FROM job_applications a JOIN vacancies v ON v.id=a.vacancy_id JOIN enquiries e ON e.id=a.candidate_enquiry_id ORDER BY a.created_at DESC LIMIT 300`);
     return json(res,200,{items:result.rows});
   }
+  if(req.method==='GET'&&url.pathname==='/api/v1/admin/job-subscriptions'){
+    const result=await pool.query(`SELECT s.*,e.reference_code,e.name,e.email,e.created_at AS request_created_at FROM job_subscriptions s JOIN enquiries e ON e.id=s.id ORDER BY s.created_at DESC LIMIT 500`);
+    return json(res,200,{items:result.rows});
+  }
   if(req.method==='GET'&&url.pathname==='/api/v1/admin/job-checks'){
     const result=await pool.query(`SELECT c.*,e.reference_code,e.name,e.email,e.organization,e.created_at AS request_created_at FROM job_checks c JOIN enquiries e ON e.id=c.id ORDER BY c.created_at DESC LIMIT 300`);
     return json(res,200,{items:result.rows});
@@ -440,9 +445,9 @@ async function handleEnquiry(req, res) {
         await client.query('INSERT INTO candidate_profiles(id,current_location,sector,preferred_role,experience_level,languages,work_eligibility,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,location,sector,role,experience,languages,eligibility,details]);
       }
       if(interest==='job_check'){
-        const checkType=clean(fields.check_type,32),market=clean(fields.candidate_market,20),employer=clean(fields.claimed_employer,180),agency=clean(fields.claimed_agency,180)||null,jobTitle=clean(fields.job_title,160)||null,workLocation=clean(fields.work_location,160)||null,appointmentDate=clean(fields.appointment_date,10)||null,claimedStatus=clean(fields.claimed_status,100),referenceLast4=clean(fields.reference_last4,4)||null,evidence=clean(fields.evidence_description,2500);
+        const checkType=clean(fields.check_type,32),market=clean(fields.candidate_market,20),paidReview=fields.request_paid_review===true||fields.request_paid_review==='yes',employer=clean(fields.claimed_employer,180),agency=clean(fields.claimed_agency,180)||null,jobTitle=clean(fields.job_title,160)||null,workLocation=clean(fields.work_location,160)||null,appointmentDate=clean(fields.appointment_date,10)||null,claimedStatus=clean(fields.claimed_status,100),referenceLast4=clean(fields.reference_last4,4)||null,evidence=clean(fields.evidence_description,2500);
         if(!['local','international'].includes(market)||!['job_offer','work_permit','consular_appointment','invitation_letter','recruitment_agent'].includes(checkType)||!employer||!claimedStatus||evidence.length<20||(referenceLast4&&!/^[A-Za-z0-9]{4}$/.test(referenceLast4))||(appointmentDate&&!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)))throw Object.assign(new Error('Complete the verification request details. Only the last four characters of a reference may be provided.'),{status:422});
-        await client.query('INSERT INTO job_checks(id,check_type,candidate_market,claimed_employer,claimed_agency,job_title,work_location,appointment_date,claimed_status,reference_last4,evidence_description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[id,checkType,market,employer,agency,jobTitle,workLocation,appointmentDate,claimedStatus,referenceLast4,evidence]);
+        await client.query('INSERT INTO job_checks(id,check_type,candidate_market,paid_review_requested,claimed_employer,claimed_agency,job_title,work_location,appointment_date,claimed_status,reference_last4,evidence_description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,checkType,market,paidReview,employer,agency,jobTitle,workLocation,appointmentDate,claimedStatus,referenceLast4,evidence]);
       }
       if(interest==='job_subscription'){
         const market=clean(fields.candidate_market,20),sectors=clean(fields.preferred_sectors,300),locations=clean(fields.preferred_locations,300)||null,roles=clean(fields.preferred_roles,300)||null,eligibility=clean(fields.work_authorisation,80)||null,frequency=clean(fields.frequency,20)||'weekly';
