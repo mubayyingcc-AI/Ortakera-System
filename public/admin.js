@@ -30,6 +30,18 @@ async function loadEmployment(kind){
    if(kind==='vacancies')controls='<div class="admin-actions"><label><input type="checkbox" data-employer="'+esc(row.id)+'" '+(row.employer_verified?'checked':'')+'> Employer verified</label><label><input type="checkbox" data-legal="'+esc(row.id)+'" '+(row.legal_route_checked?'checked':'')+'> Legal route checked</label><label>Status <select data-vstatus="'+esc(row.id)+'">'+['draft','under_review','verified','published','closed','rejected'].map(st=>'<option value="'+st+'" '+(row.status===st?'selected':'')+'>'+st.replace('_',' ')+'</option>').join('')+'</select></label><button class="admin-btn" data-vsave="'+esc(row.id)+'" type="button">Save vacancy review</button></div>';
    return '<article class="admin-item"><div><h3>'+esc(title)+'</h3><div class="admin-meta">'+esc(meta)+'</div><p class="admin-message">'+esc(JSON.stringify(row,null,2))+'</p>'+controls+'</div></article>';
   }).join('');
+  host.querySelectorAll('[data-check-save]').forEach(button=>button.addEventListener('click',async()=>{
+   const id=button.dataset.checkSave;
+   const status=host.querySelector('[data-check-status="'+CSS.escape(id)+'"]').value;
+   const findings=host.querySelector('[data-check-findings="'+CSS.escape(id)+'"]').value;
+   button.disabled=true;
+   try{
+    await api('/api/v1/admin/job-checks/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({review_status:status,review_findings:findings})});
+    $('dashboardError').textContent='';
+    await loadEmployment('job-checks');
+    await loadAudit();
+   }catch(error){$('dashboardError').textContent=error.message;button.disabled=false}
+  }));
   host.querySelectorAll('[data-partner-save]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.partnerSave,select=host.querySelector('[data-partner-status="'+CSS.escape(id)+'"]');button.disabled=true;try{await api('/api/v1/admin/recruitment-partners/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({review_status:select.value})});await loadEmployment('recruitment-partners')}catch(error){$('dashboardError').textContent=error.message;button.disabled=false}}));
   host.querySelectorAll('[data-vsave]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.vsave;const employer=host.querySelector('[data-employer="'+CSS.escape(id)+'"]').checked;const legal=host.querySelector('[data-legal="'+CSS.escape(id)+'"]').checked;const status=host.querySelector('[data-vstatus="'+CSS.escape(id)+'"]').value;button.disabled=true;try{await api('/api/v1/admin/vacancies/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({employer_verified:employer,legal_route_checked:legal,status})});await loadEmployment('vacancies')}catch(error){$('dashboardError').textContent=error.message;button.disabled=false}}));
  }catch(error){host.innerHTML='<div class="admin-error">'+esc(error.message)+'</div>'}
