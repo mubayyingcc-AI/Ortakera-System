@@ -46,3 +46,13 @@ Keep ADMIN_EMAIL, ADMIN_PASSWORD_HASH and SESSION_SECRET only in deployment secr
 ## Current build/deploy boundary
 - Latest changes are committed to GitHub main. Railway currently reports that the workspace trial has expired; a new deployment cannot be triggered until the Railway account selects an available plan.
 - The existing Railway deployment may still be serving the earlier commit. Do not describe the newly committed agency workflow as live until a deployment and runtime tests succeed.
+
+
+## Quality checks
+- `npm run check` runs Node syntax checks for the server, public website scripts, admin console and password-hash utility.
+- GitHub Actions workflow `.github/workflows/checks.yml` runs on pushes and pull requests to `main` using Node 20.
+- A green syntax workflow is necessary but not sufficient for production readiness; integration tests against PostgreSQL, browser tests, security review and deployment verification remain required.
+
+## Recruitment partner review controls
+- Staff console loads recruitment partner applications and exposes the review lifecycle controls.
+- Vacancy review controls expose employer verification, legal-route review and publication status. Publishing remains blocked unless both verification booleans are true.
