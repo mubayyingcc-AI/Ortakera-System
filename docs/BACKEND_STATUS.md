@@ -65,3 +65,10 @@ Keep ADMIN_EMAIL, ADMIN_PASSWORD_HASH and SESSION_SECRET only in deployment secr
 - `official_source_confirmed` requires staff to record the official source and what was checked. This is an internal review record, not a government determination.
 - Official sources linked on the page: Ministry e-İzin (`https://calismaizni.csgb.gov.tr/en/`) and official QR permit verification (`https://izinsorgula.csgb.gov.tr/`). Appointment authenticity may require confirmation directly with the relevant Turkish foreign mission or its officially designated appointment provider.
 - No automatic government API integration exists. No uploaded documents are accepted by this initial workflow.
+
+
+## Local/international opportunity subscriptions and paid verification intake (2026-11)
+- Job subscriptions persist local, international or both market preferences in `job_subscriptions`. Email delivery, unsubscribe automation and consent lifecycle tooling remain to be implemented before outbound alerts are activated.
+- Job checks store local/international applicant market and support employer/job offers, work permits, consular appointments, invitation letters and recruitment-agent due diligence.
+- Public paid-review service categories are presented with fee disclosure before payment. This release does not collect payment or integrate a payment provider. Do not accept funds until provider integration, refund terms, service terms, tax/accounting and legal scope are approved.
+- Job access, placement, work permits and visa approvals are never sold. No worker-paid recruitment or placement fee.
