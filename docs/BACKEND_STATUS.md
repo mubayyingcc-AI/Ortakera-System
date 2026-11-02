@@ -31,3 +31,18 @@
 
 ## Administrator setup
 Keep ADMIN_EMAIL, ADMIN_PASSWORD_HASH and SESSION_SECRET only in deployment secrets. Generate password hashes locally; never commit secrets.
+
+
+## Recruitment partner workflow (added 2026-11-02)
+- Public /employment page includes a recruitment partner application form.
+- POST /api/v1/enquiries accepts recruitment_partner and transactionally creates the enquiry plus recruitment_partners record.
+- Partner records include agency identity, licensing jurisdiction/status/reference, service regions, specialisms, candidate-fee policy, compliance declaration and review status.
+- Private GET /api/v1/admin/recruitment-partners lists partner applications.
+- Private PATCH /api/v1/admin/recruitment-partners/:id changes review status (received, due_diligence, approved, declined, suspended) and writes before/after audit evidence.
+- Partner applications are not public endorsements. Approved status is an internal staff review state, not government accreditation or a substitute for licence verification.
+- Do not represent an agent as authorised until original licence evidence and scope are checked with the relevant regulator and Turkish counsel.
+- Candidate-fee policy is a declaration supplied by the applicant and must be verified during due diligence.
+
+## Current build/deploy boundary
+- Latest changes are committed to GitHub main. Railway currently reports that the workspace trial has expired; a new deployment cannot be triggered until the Railway account selects an available plan.
+- The existing Railway deployment may still be serving the earlier commit. Do not describe the newly committed agency workflow as live until a deployment and runtime tests succeed.
