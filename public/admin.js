@@ -15,7 +15,24 @@ async function boot(){try{await api('/api/v1/admin/session');showDashboard();awa
 $('loginForm').addEventListener('submit',async event=>{event.preventDefault();$('loginError').textContent='';$('loginBtn').disabled=true;try{await api('/api/v1/admin/login',{method:'POST',body:JSON.stringify({email:$('email').value,password:$('password').value})});$('password').value='';showDashboard();await Promise.all([loadEnquiries(),loadAudit()])}catch(error){$('loginError').textContent=error.message}finally{$('loginBtn').disabled=false}});
 $('logoutBtn').addEventListener('click',async()=>{try{await api('/api/v1/admin/logout',{method:'POST'})}finally{showLogin()}});
 $('statusFilter').addEventListener('change',loadEnquiries);$('refreshBtn').addEventListener('click',()=>Promise.all([loadEnquiries(),loadAudit()]));boot();
-async function loadEmployment(kind){const host=$('employmentRecords');host.innerHTML='<div class="admin-empty">Loading…</div>';try{const data=await api('/api/v1/admin/'+kind);const rows=data.items||[];if(!rows.length){host.innerHTML='<div class="admin-empty">No records found.</div>';return}host.innerHTML=rows.map(row=>'<article class="admin-item"><div><h3>'+esc(row.name||row.title||row.employer_name||row.reference_code)+'</h3><div class="admin-meta">'+esc(row.reference_code||'')+' · '+esc(row.email||row.location||row.current_location||'')+'</div><p class="admin-message">'+esc(JSON.stringify(row,null,2))+'</p></div></article>').join('')}catch(error){host.innerHTML='<div class="admin-error">'+esc(error.message)+'</div>'}}
+async function loadEmployment(kind){
+ const host=$('employmentRecords');host.innerHTML='<div class="admin-empty">Loading…</div>';
+ try{
+  const data=await api('/api/v1/admin/'+kind);const rows=data.items||[];
+  if(!rows.length){host.innerHTML='<div class="admin-empty">No records found.</div>';return}
+  host.innerHTML=rows.map(row=>{
+   const title=row.agency_name||row.name||row.title||row.employer_name||row.reference_code;
+   const reference=row.reference_code||row.vacancy_reference||'';
+   const meta=[reference,row.email||row.location||row.current_location||row.jurisdiction||''].filter(Boolean).join(' · ');
+   let controls='';
+   if(kind==='recruitment-partners')controls='<div class="admin-actions"><label>Review status <select data-partner-status="'+esc(row.id)+'">'+['received','due_diligence','approved','declined','suspended'].map(st=>'<option value="'+st+'" '+(row.review_status===st?'selected':'')+'>'+st.replace('_',' ')+'</option>').join('')+'</select></label><button class="admin-btn" data-partner-save="'+esc(row.id)+'" type="button">Save review</button></div>';
+   if(kind==='vacancies')controls='<div class="admin-actions"><label><input type="checkbox" data-employer="'+esc(row.id)+'" '+(row.employer_verified?'checked':'')+'> Employer verified</label><label><input type="checkbox" data-legal="'+esc(row.id)+'" '+(row.legal_route_checked?'checked':'')+'> Legal route checked</label><label>Status <select data-vstatus="'+esc(row.id)+'">'+['draft','under_review','verified','published','closed','rejected'].map(st=>'<option value="'+st+'" '+(row.status===st?'selected':'')+'>'+st.replace('_',' ')+'</option>').join('')+'</select></label><button class="admin-btn" data-vsave="'+esc(row.id)+'" type="button">Save vacancy review</button></div>';
+   return '<article class="admin-item"><div><h3>'+esc(title)+'</h3><div class="admin-meta">'+esc(meta)+'</div><p class="admin-message">'+esc(JSON.stringify(row,null,2))+'</p>'+controls+'</div></article>';
+  }).join('');
+  host.querySelectorAll('[data-partner-save]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.partnerSave,select=host.querySelector('[data-partner-status="'+CSS.escape(id)+'"]');button.disabled=true;try{await api('/api/v1/admin/recruitment-partners/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({review_status:select.value})});await loadEmployment('recruitment-partners')}catch(error){$('dashboardError').textContent=error.message;button.disabled=false}}));
+  host.querySelectorAll('[data-vsave]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.vsave;const employer=host.querySelector('[data-employer="'+CSS.escape(id)+'"]').checked;const legal=host.querySelector('[data-legal="'+CSS.escape(id)+'"]').checked;const status=host.querySelector('[data-vstatus="'+CSS.escape(id)+'"]').value;button.disabled=true;try{await api('/api/v1/admin/vacancies/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({employer_verified:employer,legal_route_checked:legal,status})});await loadEmployment('vacancies')}catch(error){$('dashboardError').textContent=error.message;button.disabled=false}}));
+ }catch(error){host.innerHTML='<div class="admin-error">'+esc(error.message)+'</div>'}
+}
 $('loadCandidates')?.addEventListener('click',()=>loadEmployment('candidates'));
 $('loadEmployers')?.addEventListener('click',()=>loadEmployment('employer-requirements'));
 $('loadVacancies')?.addEventListener('click',()=>loadEmployment('vacancies'));
@@ -23,5 +40,3 @@ $('vacancyForm')?.addEventListener('submit',async event=>{event.preventDefault()
 
 $('loadApplications')?.addEventListener('click',()=>loadEmployment('applications'));
 $('loadPartners')?.addEventListener('click',()=>loadEmployment('recruitment-partners'));
-
-document.querySelectorAll('[data-partner-save]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.partnerSave,select=document.querySelector('[data-partner-status="'+CSS.escape(id)+'"]');button.disabled=true;try{await api('/api/v1/admin/recruitment-partners/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({review_status:select.value})});await loadEmployment('recruitment-partners')}catch(error){$('dashboardError').textContent=error.message;button.disabled=false}}));
