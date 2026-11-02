@@ -72,3 +72,5 @@ Keep ADMIN_EMAIL, ADMIN_PASSWORD_HASH and SESSION_SECRET only in deployment secr
 - Job checks store local/international applicant market and support employer/job offers, work permits, consular appointments, invitation letters and recruitment-agent due diligence.
 - Public paid-review service categories are presented with fee disclosure before payment. This release does not collect payment or integrate a payment provider. Do not accept funds until provider integration, refund terms, service terms, tax/accounting and legal scope are approved.
 - Job access, placement, work permits and visa approvals are never sold. No worker-paid recruitment or placement fee.
+
+- Admin console now lists job-alert subscriptions at `/api/v1/admin/job-subscriptions` and paid verification interest is stored as an explicit flag for staff follow-up. Payment is not collected or automated; staff must provide a written quote and scope, and only later accept payment through an approved provider.
