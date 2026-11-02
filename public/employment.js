@@ -4,7 +4,7 @@ function notify(message){toast.textContent=message;toast.classList.add('show');c
 function formMessage(form){const data=Object.fromEntries(new FormData(form).entries());const parts=[];
 for(const [key,value] of Object.entries(data)){if(['name','email','organization','consent'].includes(key)||!value)continue;parts.push(key.replace(/([A-Z])/g,' $1').replace(/_/g,' ')+': '+String(value).trim());}
 return parts.join('\n');}
-for(const id of ['candidateForm','employerForm','agencyForm','jobCheckForm']){
+for(const id of ['candidateForm','employerForm','agencyForm','jobCheckForm','jobSubscriptionForm']){
  const form=document.getElementById(id);form.addEventListener('submit',async event=>{
   event.preventDefault();if(!form.reportValidity())return;
   const button=form.querySelector('[type="submit"]'),note=form.querySelector('.form-foot'),original=button.innerHTML;
