@@ -93,6 +93,25 @@ async function migrate() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS recruitment_partners_status_idx ON recruitment_partners(review_status,created_at DESC);
+    CREATE TABLE IF NOT EXISTS job_checks (
+      id UUID PRIMARY KEY REFERENCES enquiries(id) ON DELETE CASCADE,
+      check_type TEXT NOT NULL CHECK (check_type IN ('job_offer','work_permit','consular_appointment')),
+      claimed_employer TEXT NOT NULL,
+      claimed_agency TEXT,
+      job_title TEXT,
+      work_location TEXT,
+      appointment_date DATE,
+      claimed_status TEXT NOT NULL,
+      reference_last4 TEXT,
+      evidence_description TEXT NOT NULL,
+      review_status TEXT NOT NULL DEFAULT 'received' CHECK (review_status IN ('received','due_diligence','official_source_confirmed','unable_to_verify','suspected_fraud','closed')),
+      review_findings TEXT,
+      reviewed_by TEXT,
+      reviewed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS job_checks_status_idx ON job_checks(review_status,created_at DESC);
     CREATE TABLE IF NOT EXISTS vacancies (
       id UUID PRIMARY KEY,
       reference_code TEXT NOT NULL UNIQUE,
@@ -250,6 +269,24 @@ async function handleAdminApi(req,res,url) {
     const result=await pool.query(`SELECT a.id,a.status,a.created_at,v.reference_code AS vacancy_reference,v.title,e.reference_code AS candidate_reference,e.name,e.email FROM job_applications a JOIN vacancies v ON v.id=a.vacancy_id JOIN enquiries e ON e.id=a.candidate_enquiry_id ORDER BY a.created_at DESC LIMIT 300`);
     return json(res,200,{items:result.rows});
   }
+  if(req.method==='GET'&&url.pathname==='/api/v1/admin/job-checks'){
+    const result=await pool.query(`SELECT c.*,e.reference_code,e.name,e.email,e.organization,e.created_at AS request_created_at FROM job_checks c JOIN enquiries e ON e.id=c.id ORDER BY c.created_at DESC LIMIT 300`);
+    return json(res,200,{items:result.rows});
+  }
+  const jobCheckMatch=url.pathname.match(/^\/api\/v1\/admin\/job-checks\/([0-9a-f-]{36})$/i);
+  if(req.method==='PATCH'&&jobCheckMatch){
+    if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+    let body;try{body=await readBody(req,3500)}catch(error){return json(res,error.status||400,{error:error.message})}
+    const allowed=['received','due_diligence','official_source_confirmed','unable_to_verify','suspected_fraud','closed'];
+    if(!allowed.includes(body.review_status))return json(res,422,{error:'Invalid verification review status.'});
+    const findings=clean(body.review_findings,2500);
+    if(body.review_status==='official_source_confirmed'&&findings.length<20)return json(res,422,{error:'Record the official source and what was confirmed before marking this verified.'});
+    const current=await pool.query('SELECT * FROM job_checks WHERE id=$1',[jobCheckMatch[1]]);
+    if(!current.rowCount)return json(res,404,{error:'Verification request not found.'});
+    const updated=await pool.query('UPDATE job_checks SET review_status=$1,review_findings=$2,reviewed_by=$3,reviewed_at=NOW(),updated_at=NOW() WHERE id=$4 RETURNING *',[body.review_status,findings||null,admin.email,jobCheckMatch[1]]);
+    await pool.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'job_check.reviewed','job_check',jobCheckMatch[1],JSON.stringify(current.rows[0]),JSON.stringify(updated.rows[0])]);
+    return json(res,200,{ok:true,item:updated.rows[0]});
+  }
   if (req.method === 'GET' && url.pathname === '/api/v1/admin/recruitment-partners') {
     const result=await pool.query(`SELECT p.*,e.reference_code,e.name,e.email,e.organization,e.created_at AS enquiry_created_at FROM recruitment_partners p JOIN enquiries e ON e.id=p.id ORDER BY p.created_at DESC LIMIT 200`);
     return json(res,200,{items:result.rows});
@@ -372,7 +409,7 @@ async function handleEnquiry(req, res) {
   const locale = ['en','tr','ar','fr','de'].includes(body.locale) ? body.locale : 'en';
   const consent = body.consent === true;
   const fields = body.fields && typeof body.fields === 'object' ? body.fields : {};
-  const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring','recruitment_partner'];
+  const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring','recruitment_partner','job_check'];
 
   if (name.length < 2) return json(res, 422, { error:'Please enter your name.' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(res, 422, { error:'Please enter a valid email address.' });
@@ -392,6 +429,11 @@ async function handleEnquiry(req, res) {
         const location=clean(fields.location,120),sector=clean(fields.sector,100),role=clean(fields.role,160),experience=clean(fields.experience,40),languages=clean(fields.languages,160),eligibility=clean(fields.eligibility,80),details=clean(fields.details,1500);
         if(!location||!sector||!role||!experience||!eligibility)throw Object.assign(new Error('Candidate profile is missing required structured fields.'),{status:422});
         await client.query('INSERT INTO candidate_profiles(id,current_location,sector,preferred_role,experience_level,languages,work_eligibility,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,location,sector,role,experience,languages,eligibility,details]);
+      }
+      if(interest==='job_check'){
+        const checkType=clean(fields.check_type,32),employer=clean(fields.claimed_employer,180),agency=clean(fields.claimed_agency,180)||null,jobTitle=clean(fields.job_title,160)||null,workLocation=clean(fields.work_location,160)||null,appointmentDate=clean(fields.appointment_date,10)||null,claimedStatus=clean(fields.claimed_status,100),referenceLast4=clean(fields.reference_last4,4)||null,evidence=clean(fields.evidence_description,2500);
+        if(!['job_offer','work_permit','consular_appointment'].includes(checkType)||!employer||!claimedStatus||evidence.length<20||(referenceLast4&&!/^[A-Za-z0-9]{4}$/.test(referenceLast4))||(appointmentDate&&!/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)))throw Object.assign(new Error('Complete the verification request details. Only the last four characters of a reference may be provided.'),{status:422});
+        await client.query('INSERT INTO job_checks(id,check_type,claimed_employer,claimed_agency,job_title,work_location,appointment_date,claimed_status,reference_last4,evidence_description) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,checkType,employer,agency,jobTitle,workLocation,appointmentDate,claimedStatus,referenceLast4,evidence]);
       }
       if(interest==='recruitment_partner'){
         const agency=clean(fields.agency_name,180),jurisdiction=clean(fields.jurisdiction,120),licence=clean(fields.licence_status,30),licenceRef=clean(fields.licence_reference,160)||null,website=clean(fields.website,240)||null,regions=clean(fields.service_regions,240),specialisms=clean(fields.specialisms,500),feePolicy=clean(fields.candidate_fee_policy,40),compliance=fields.compliance_declaration===true||fields.compliance_declaration==='yes';
