@@ -161,3 +161,23 @@ Please provide your relevant experience, current bar registration details, propo
 
 Kind regards,  
 Ortakera Systems
+
+## 13. Founder-specific operating assumptions — confirmed by founder
+These are founder decisions for counsel to assess; they are not legal conclusions or evidence that the structure is already established.
+
+- **Ownership intention:** the founder intends to own the Turkish business personally as an individual, subject to counsel confirming eligibility, documentation and the correct entity form.
+- **Initial operating arrangement:** remote-first, with the founder initially coordinating from Nigeria. Do not assume that remote management removes Turkish company, tax, work-permit, permanent-establishment, data-protection or local licensing obligations.
+- **Initial customer markets:** both Türkiye-based businesses and international businesses. Counsel and the SMMM should separately map contracting party, place of supply, VAT/invoicing, consumer/business status, data transfers and any local registration for each lane.
+- **Founder role:** distinguish shareholder ownership from daily management, director/manager duties, signing authority, employment and physical work in Türkiye. Obtain written advice for the actual proposed role and travel pattern.
+- **No nominal management:** do not appoint a paper manager or give a local representative authority they do not genuinely exercise. Any manager must have a real mandate, defined authority, records access, fiduciary responsibilities and documented limits.
+
+### Additional counsel questions arising from these decisions
+30. Can the founder hold 100% of the proposed entity personally while residing and initially operating from Nigeria? What nationality/residency documents and local representation requirements apply?
+31. Which founder activities can be performed remotely from Nigeria as shareholder, director/manager, employee or contractor, and which activities require a Turkish work permit or other permission when physically in Türkiye?
+32. Could the founder's remote decision-making, staff supervision, contract negotiation, service delivery or management from Nigeria create Nigerian individual tax residence, company tax residence, central/effective management, permanent establishment, payroll or other filing obligations?
+33. What Turkish tax and reporting obligations arise from serving both Türkiye-based and international business customers? Which contracts, invoicing flows, VAT treatment and customer-location evidence are required?
+34. Should a Turkish entity be incorporated before the first paid pilot, or can a narrowly defined service lawfully be contracted and invoiced through another identified entity? Please answer for each proposed service, not as a general assumption.
+35. What registered address, manager, bank account, signature arrangement and operational presence are required without creating a fictitious office or nominal local director?
+
+## 14. Founder decisions that remain open for professional confirmation
+The founder has not yet supplied a final nationality/citizenship confirmation, Nigerian and Turkish tax-residence analysis, expected travel pattern, chosen company form, Turkish manager arrangement, registered address, or final service scope. Counsel must not infer these facts. Obtain them securely and only to the extent necessary for the engagement.
