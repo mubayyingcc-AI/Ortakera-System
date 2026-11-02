@@ -1,6 +1,7 @@
 const year=document.getElementById('year');year.textContent=new Date().getFullYear();
 const toast=document.getElementById('toast');let toastTimer;
 function notify(message){toast.textContent=message;toast.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.classList.remove('show'),4500)}
+function currentLocale(){try{return localStorage.getItem('ortakera-language')||'en'}catch{return 'en'}}
 function formMessage(form){const data=Object.fromEntries(new FormData(form).entries());const parts=[];
 for(const [key,value] of Object.entries(data)){if(['name','email','organization','consent'].includes(key)||!value)continue;parts.push(key.replace(/([A-Z])/g,' $1').replace(/_/g,' ')+': '+String(value).trim());}
 return parts.join('\n');}
@@ -10,7 +11,7 @@ for(const id of ['candidateForm','employerForm','agencyForm','jobCheckForm','job
   const button=form.querySelector('[type="submit"]'),note=form.querySelector('.form-foot'),original=button.innerHTML;
   const data=Object.fromEntries(new FormData(form).entries());
   const fields=Object.fromEntries(Object.entries(data).filter(([key])=>!['name','email','organization','consent'].includes(key)));
-  const payload={name:data.name,email:data.email,organization:data.organization||data.agency_name||data.claimed_employer||'',interest:form.dataset.interest,message:formMessage(form),fields,consent:data.consent==='yes',locale:'en'};
+  const payload={name:data.name,email:data.email,organization:data.organization||data.agency_name||data.claimed_employer||'',interest:form.dataset.interest,message:formMessage(form),fields,consent:data.consent==='yes',locale:currentLocale()};
   button.disabled=true;button.textContent='Submitting…';note.textContent='Sending securely…';
   try{const response=await fetch('/api/v1/enquiries',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Submission failed.');
    note.textContent='Received. Your reference is '+result.reference+'. Our team will review your registration.';
