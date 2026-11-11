@@ -69,3 +69,17 @@ test('membership approval requires auditable evidence before activating privileg
  assert.ok(admin.includes('evidence_reference:reference?.value||'));
  assert.ok(admin.includes('verification_note:verification?.value||'));
 });
+
+test('employer accounts require review and can submit account-linked hiring requirements', async () => {
+ const [server,html,client,admin]=await Promise.all([read('server.js'),read('public/account.html'),read('public/account.js'),read('public/admin.js')]);
+ assert.ok(server.includes("account_type IN ('member','agent','partner','employer')"));
+ assert.ok(server.includes("request_type IN ('subscription','agent','partner','employer')"));
+ assert.ok(server.includes("url.pathname==='/api/v1/employer/vacancies'"));
+ assert.ok(server.includes("url.pathname==='/api/v1/employer/applications'"));
+ assert.ok(server.includes("status='under_review',FALSE,FALSE"));
+ assert.ok(server.includes('employer_account_id'));
+ assert.ok(html.includes('id="employerForm"')&&html.includes('value="employer"'));
+ assert.ok(client.includes("api('/api/v1/employer/vacancies')")&&client.includes("api('/api/v1/employer/applications')"));
+ assert.ok(server.includes("['agent','partner','employer'].includes(item.request_type)"));
+ assert.ok(admin.includes('loadMembershipRequests'));
+});
