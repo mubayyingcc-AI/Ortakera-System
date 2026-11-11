@@ -19,7 +19,7 @@ test('employment section sequence is unique and links resolve to present section
  for(const id of ['candidate','employer','job-alerts','job-check','agents','jobs','standards'])assert.ok(html.includes('id="'+id+'"'), 'missing section '+id);
  const numbers=[...html.matchAll(/class="kicker(?: light-kicker)?"><span>(\d{2})<\/span>/g)].map(x=>x[1]);
  assert.ok(numbers.length>=8);
- assert.deepEqual(numbers.slice(0,9),['01','03','04','05','06','07','08','09'].slice(0,numbers.length>=8?8:9));
+ assert.deepEqual(numbers.slice(0,9),['01','02','03','04','05','06','07','08','09']);
 });
 
 test('employment page does not present live vacancies when none are confirmed', async () => {
