@@ -55,3 +55,15 @@ $('loadApplications')?.addEventListener('click',()=>loadEmployment('applications
 $('loadPartners')?.addEventListener('click',()=>loadEmployment('recruitment-partners'));
 $('loadJobChecks')?.addEventListener('click',()=>loadEmployment('job-checks'));
 $('loadSubscriptions')?.addEventListener('click',()=>loadEmployment('job-subscriptions'));
+
+
+async function loadMembershipRequests(){
+ const host=$('employmentRecords');host.innerHTML='<div class="admin-empty">Loading membership requests…</div>';
+ try{
+  const data=await api('/api/v1/admin/membership-requests');
+  if(!data.items.length){host.innerHTML='<div class="admin-empty">No member, agent, partner or subscription requests yet.</div>';return}
+  host.innerHTML=data.items.map(row=>'<article class="admin-item"><div><h3>'+esc(row.full_name)+' · '+esc(row.request_type)+'</h3><div class="admin-meta">'+esc(row.email)+' · '+esc(row.account_type)+' · '+esc(row.plan)+' · '+esc(row.account_status)+'</div><p class="admin-message">'+esc(row.organization||'Individual member')+' · Request: '+esc(row.request_status)+' · '+esc(new Date(row.created_at).toLocaleString())+'</p></div><div class="admin-actions"><select data-membership-type="'+esc(row.request_type)+'" data-membership-status="'+esc(row.id)+'"><option value="approved">Approve</option><option value="declined">Decline</option></select><label>Verification evidence reference<input data-payment-reference="'+esc(row.id)+'" maxlength="120" placeholder="Required for approval"></label><label>Verification note<textarea data-payment-note="'+esc(row.id)+'" rows="2" maxlength="1000" placeholder="Record how payment or arrangement was verified"></textarea></label><button class="admin-btn" data-membership-save="'+esc(row.id)+'" type="button">Save review</button></div></article>').join('');
+  host.querySelectorAll('[data-membership-save]').forEach(button=>button.addEventListener('click',async()=>{const id=button.dataset.membershipSave,select=host.querySelector('[data-membership-status="'+CSS.escape(id)+'"]'),type=select.dataset.membershipType,reference=host.querySelector('[data-payment-reference="'+CSS.escape(id)+'"]'),verification=host.querySelector('[data-payment-note="'+CSS.escape(id)+'"]');button.disabled=true;try{await api('/api/v1/admin/membership-requests/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({request_status:select.value,request_type:type,evidence_reference:reference?.value||'',verification_note:verification?.value||''})});await loadMembershipRequests();await loadAudit()}catch(error){$('dashboardError').textContent=error.message;button.disabled=false}}));
+ }catch(error){host.innerHTML='<div class="admin-error">'+esc(error.message)+'</div>'}
+}
+$('loadMembership')?.addEventListener('click',loadMembershipRequests);

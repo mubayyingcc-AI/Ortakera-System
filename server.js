@@ -153,6 +153,48 @@ async function migrate() {
       UNIQUE(vacancy_id,candidate_enquiry_id)
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS member_accounts (
+      id UUID PRIMARY KEY, email TEXT NOT NULL UNIQUE, full_name TEXT NOT NULL,
+      password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+      account_type TEXT NOT NULL CHECK(account_type IN ('member','agent','partner')),
+      plan TEXT NOT NULL DEFAULT 'free' CHECK(plan IN ('free','subscribed')),
+      account_status TEXT NOT NULL DEFAULT 'active' CHECK(account_status IN ('active','pending_review','suspended','closed')),
+      organization TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS member_profiles (
+      account_id UUID PRIMARY KEY REFERENCES member_accounts(id) ON DELETE CASCADE,
+      profile JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS member_sessions (
+      id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS member_sessions_expiry_idx ON member_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS membership_requests (
+      id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      request_type TEXT NOT NULL CHECK(request_type IN ('subscription','agent','partner')),
+      request_status TEXT NOT NULL DEFAULT 'pending' CHECK(request_status IN ('pending','approved','declined','cancelled')),
+      details JSONB NOT NULL DEFAULT '{}'::jsonb, reviewed_by TEXT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS membership_requests_status_idx ON membership_requests(request_status,created_at DESC);
+    CREATE TABLE IF NOT EXISTS member_saved_vacancies (
+      account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      vacancy_id UUID NOT NULL REFERENCES vacancies(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY(account_id,vacancy_id)
+    );
+    CREATE TABLE IF NOT EXISTS member_job_applications (
+      id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      vacancy_id UUID NOT NULL REFERENCES vacancies(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'received' CHECK(status IN ('received','screening','shortlisted','interview','offered','declined','withdrawn')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(account_id,vacancy_id)
+    );
+    CREATE INDEX IF NOT EXISTS member_job_applications_account_idx ON member_job_applications(account_id,created_at DESC);
+  `);
+
 }
 
 function json(res, status, payload) {
@@ -268,6 +310,99 @@ async function handleAdminLogin(req,res) {
   setSessionCookie(res,createSession(adminEmail));
   return json(res,200,{ok:true,email:adminEmail,expiresIn:SESSION_TTL_SECONDS});
 }
+
+const MEMBER_COOKIE='ortakera_member';
+const MEMBER_TTL=2592000;
+async function memberPassword(password,saltHex){const salt=saltHex?Buffer.from(saltHex,'hex'):randomBytes(16);return {salt:salt.toString('hex'),hash:(await scrypt(password,salt,64)).toString('hex')};}
+function setMemberCookie(res,token,maxAge=MEMBER_TTL){res.setHeader('set-cookie',`${MEMBER_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/member; Max-Age=${maxAge}`);}
+function memberCookieClear(res){res.setHeader('set-cookie',`${MEMBER_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/member; Max-Age=0`);}
+async function currentMember(req){const token=cookieValue(req,MEMBER_COOKIE);if(!token||!sessionSecret())return null;const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');const q=await pool.query("SELECT a.id,a.email,a.full_name,a.account_type,a.plan,a.account_status,a.organization FROM member_sessions s JOIN member_accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>NOW()",[hash]);return q.rows[0]||null;}
+async function handleMemberApi(req,res,url){
+ if(!pool)return json(res,503,{error:'Member service unavailable.'});
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/register'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',type=b.account_type||'member',org=clean(b.organization,180)||null;
+  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<12||password.length>200||!['member','agent','partner'].includes(type)||((type==='agent'||type==='partner')&&!org))return json(res,422,{error:'Enter valid details. Password must contain at least 12 characters; agents and partners must provide an organisation.'});
+  const id=randomUUID(),pw=await memberPassword(password),status=type==='member'?'active':'pending_review';
+  const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO member_accounts(id,email,full_name,password_salt,password_hash,account_type,account_status,organization) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,email,name,pw.salt,pw.hash,type,status,org]);if(type!=='member')await client.query('INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,$3,$4::jsonb)',[randomUUID(),id,type,JSON.stringify({organization:org})]);await client.query('COMMIT');return json(res,201,{ok:true,account:{id,email,full_name:name,account_type:type,plan:'free',account_status:status},message:type==='member'?'Free account created. Sign in.':'Application received; access is pending review.'});}catch(e){await client.query('ROLLBACK');if(e.code==='23505')return json(res,409,{error:'An account with this email already exists.'});console.error('Member registration:',e.code||e.name);return json(res,500,{error:'Could not create account.'});}finally{client.release()}
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/login'){
+  const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();if(!rateAllowed('member-login:'+ip))return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
+  if(!sessionSecret())return json(res,503,{error:'Member sessions are not configured.'});
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,3000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',q=await pool.query('SELECT * FROM member_accounts WHERE email=$1',[email]);
+  if(!q.rowCount)return json(res,401,{error:'Email or password is incorrect.'});
+  const a=q.rows[0],candidate=await memberPassword(password,a.password_salt),x=Buffer.from(candidate.hash,'hex'),y=Buffer.from(a.password_hash,'hex');
+  if(x.length!==y.length||!timingSafeEqual(x,y))return json(res,401,{error:'Email or password is incorrect.'});
+  if(['suspended','closed'].includes(a.account_status))return json(res,403,{error:'Account unavailable.'});
+  const raw=randomBytes(32).toString('base64url'),hash=createHmac('sha256',sessionSecret()).update(raw).digest('hex');
+  await pool.query("INSERT INTO member_sessions(id,account_id,token_hash,expires_at) VALUES($1,$2,$3,NOW()+INTERVAL '30 days')",[randomUUID(),a.id,hash]);await pool.query('UPDATE member_accounts SET last_login_at=NOW() WHERE id=$1',[a.id]);setMemberCookie(res,raw);
+  return json(res,200,{ok:true,account:{id:a.id,email:a.email,full_name:a.full_name,account_type:a.account_type,plan:a.plan,account_status:a.account_status}});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/logout'){if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});const token=cookieValue(req,MEMBER_COOKIE);if(token){const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');await pool.query('DELETE FROM member_sessions WHERE token_hash=$1',[hash]);}memberCookieClear(res);return json(res,200,{ok:true});}
+ const a=await currentMember(req);
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/me'){if(!a)return json(res,401,{error:'Sign in required.'});return json(res,200,{ok:true,account:a});}
+
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/jobs'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  const q=await pool.query(`SELECT v.reference_code,v.title,v.sector,v.location,v.description,v.gross_pay_range,v.employment_type,v.headcount,v.created_at,(sv.account_id IS NOT NULL) AS saved,(ma.id IS NOT NULL) AS applied FROM vacancies v LEFT JOIN member_saved_vacancies sv ON sv.vacancy_id=v.id AND sv.account_id=$1 LEFT JOIN member_job_applications ma ON ma.vacancy_id=v.id AND ma.account_id=$1 WHERE v.status='published' AND v.employer_verified=TRUE AND v.legal_route_checked=TRUE ORDER BY v.created_at DESC LIMIT 100`,[a.id]);
+  return json(res,200,{items:q.rows});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/saved-jobs'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const ref=clean(b.reference_code,40).toUpperCase();if(!ref)return json(res,422,{error:'Opportunity reference is required.'});
+  const v=await pool.query("SELECT id FROM vacancies WHERE reference_code=$1 AND status='published' AND employer_verified=TRUE AND legal_route_checked=TRUE",[ref]);if(!v.rowCount)return json(res,404,{error:'This opportunity is not currently available.'});
+  await pool.query('INSERT INTO member_saved_vacancies(account_id,vacancy_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[a.id,v.rows[0].id]);return json(res,200,{ok:true,saved:true});
+ }
+ if(req.method==='DELETE'&&url.pathname==='/api/v1/member/saved-jobs'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const ref=clean(b.reference_code,40).toUpperCase();await pool.query('DELETE FROM member_saved_vacancies sv USING vacancies v WHERE sv.vacancy_id=v.id AND sv.account_id=$1 AND v.reference_code=$2',[a.id,ref]);return json(res,200,{ok:true,saved:false});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/applications'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='member')return json(res,403,{error:'This account type cannot submit candidate applications.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1500)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const ref=clean(b.reference_code,40).toUpperCase();if(!ref)return json(res,422,{error:'Opportunity reference is required.'});
+  const v=await pool.query("SELECT id FROM vacancies WHERE reference_code=$1 AND status='published' AND employer_verified=TRUE AND legal_route_checked=TRUE",[ref]);if(!v.rowCount)return json(res,404,{error:'This opportunity is not currently available.'});
+  try{const q=await pool.query("INSERT INTO member_job_applications(id,account_id,vacancy_id) VALUES($1,$2,$3) RETURNING id,status,created_at",[randomUUID(),a.id,v.rows[0].id]);return json(res,201,{ok:true,application:q.rows[0]})}catch(e){if(e.code==='23505')return json(res,409,{error:'You have already applied for this opportunity.'});throw e}
+ }
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/applications'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  const q=await pool.query('SELECT m.id,m.status,m.created_at,m.updated_at,v.reference_code,v.title,v.location FROM member_job_applications m JOIN vacancies v ON v.id=m.vacancy_id WHERE m.account_id=$1 ORDER BY m.created_at DESC',[a.id]);return json(res,200,{items:q.rows});
+ }
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/profile'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  const q=await pool.query('SELECT profile,updated_at FROM member_profiles WHERE account_id=$1',[a.id]);
+  return json(res,200,{profile:q.rows[0]?.profile||{},updated_at:q.rows[0]?.updated_at||null});
+ }
+ if(req.method==='PATCH'&&url.pathname==='/api/v1/member/profile'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  if(!b||typeof b!=='object'||Array.isArray(b))return json(res,400,{error:'Profile must be an object.'});
+  const allowed=['country','city','bio','preferred_sectors','preferred_roles','languages','website','operating_regions','specialisms','licensing_status'];
+  const profile={};
+  for(const key of allowed){if(b[key]!==undefined){if(typeof b[key]!=='string')return json(res,422,{error:'Profile fields must be text.'});profile[key]=clean(b[key],key==='bio'?1200: key==='website'?240: key==='licensing_status'?80:300)}}
+  if(profile.website&&!/^https:\/\//i.test(profile.website))return json(res,422,{error:'Website must use an https:// address.'});
+  if(['agent','partner'].includes(a.account_type)&&profile.licensing_status&& !['licensed','applying','not_required','unsure'].includes(profile.licensing_status))return json(res,422,{error:'Choose a valid authorisation status.'});
+  const saved=await pool.query("INSERT INTO member_profiles(account_id,profile,updated_at) VALUES($1,$2::jsonb,NOW()) ON CONFLICT(account_id) DO UPDATE SET profile=member_profiles.profile || EXCLUDED.profile,updated_at=NOW() RETURNING profile,updated_at",[a.id,JSON.stringify(profile)]);
+  return json(res,200,{ok:true,...saved.rows[0]});
+ }
+ if(!a)return json(res,401,{error:'Sign in required.'});
+ if(a.account_status!=='active')return json(res,403,{error:'Account is pending review or inactive.'});
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/requests'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});let b;try{b=await readBody(req,2000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  if(b.request_type!=='subscription')return json(res,422,{error:'Unsupported request.'});if(a.plan==='subscribed')return json(res,409,{error:'Already subscribed.'});
+  const p=await pool.query("SELECT id FROM membership_requests WHERE account_id=$1 AND request_type='subscription' AND request_status='pending'",[a.id]);if(p.rowCount)return json(res,409,{error:'A subscription request is already pending.'});
+  const id=randomUUID();await pool.query("INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,'subscription',$3::jsonb)",[id, a.id,JSON.stringify({source:'member_portal'})]);return json(res,201,{ok:true,request_id:id,request_status:'pending',message:'Request received. Subscribed access activates only after payment verification or an approved arrangement.'});
+ }
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/requests'){const q=await pool.query('SELECT id,request_type,request_status,created_at,reviewed_at FROM membership_requests WHERE account_id=$1 ORDER BY created_at DESC',[a.id]);return json(res,200,{items:q.rows});}
+ return json(res,404,{error:'Member endpoint not found.'});
+}
+
 async function handleAdminApi(req,res,url) {
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/login') return handleAdminLogin(req,res);
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/logout') {
@@ -405,6 +540,33 @@ async function handleAdminApi(req,res,url) {
       return json(res,200,{items:result.rows});
     } catch(error) { console.error('Admin audit read failed:',error.code||error.name); return json(res,500,{error:'Could not load audit history.'}); }
   }
+  if(req.method==='GET'&&url.pathname==='/api/v1/admin/membership-requests'){
+    const q=await pool.query(`SELECT r.id,r.request_type,r.request_status,r.details,r.created_at,a.id AS account_id,a.email,a.full_name,a.account_type,a.plan,a.account_status,a.organization FROM membership_requests r JOIN member_accounts a ON a.id=r.account_id ORDER BY r.created_at DESC LIMIT 300`);
+    return json(res,200,{items:q.rows});
+  }
+  const membershipMatch=url.pathname.match(/^\/api\/v1\/admin\/membership-requests\/([0-9a-f-]{36})$/i);
+  if(req.method==='PATCH'&&membershipMatch){
+    if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+    let body;try{body=await readBody(req,2000)}catch(error){return json(res,error.status||400,{error:error.message})}
+    if(!['approved','declined'].includes(body.request_status))return json(res,422,{error:'Choose approved or declined.'});
+    const evidenceReference=clean(body.evidence_reference,120),verificationNote=clean(body.verification_note,1000);
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const current=await client.query('SELECT r.*,a.account_type,a.plan,a.account_status,a.id AS account_id FROM membership_requests r JOIN member_accounts a ON a.id=r.account_id WHERE r.id=$1 FOR UPDATE',[membershipMatch[1]]);
+      if(!current.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Membership request not found.'})}
+      const item=current.rows[0];
+      if(item.request_status!=='pending'){await client.query('ROLLBACK');return json(res,409,{error:'This request has already been reviewed.'})}
+      if(body.request_status==='approved'&&(!evidenceReference||verificationNote.length<10)){await client.query('ROLLBACK');return json(res,422,{error:item.request_type==='subscription'?'Provide a payment or approved-arrangement reference and a verification note of at least 10 characters.':'Provide a due-diligence evidence reference and a verification note of at least 10 characters.'})}
+      if(item.request_type==='subscription'&&body.request_status==='approved')await client.query("UPDATE member_accounts SET plan='subscribed',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      if((item.request_type==='agent'||item.request_type==='partner')&&body.request_status==='approved')await client.query("UPDATE member_accounts SET account_status='active',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      if(body.request_status==='declined'&&(item.request_type==='agent'||item.request_type==='partner'))await client.query("UPDATE member_accounts SET account_status='suspended',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      const detailPatch=item.request_type==='subscription'&&body.request_status==='approved'?{evidence_reference:evidenceReference,verification_note:verificationNote,verified_by:admin.email,verified_at:new Date().toISOString()}:{};
+      const updated=await client.query('UPDATE membership_requests SET request_status=$1,details=details || $2::jsonb,reviewed_by=$3,reviewed_at=NOW() WHERE id=$4 RETURNING *',[body.request_status,JSON.stringify(detailPatch),admin.email,membershipMatch[1]]);
+      await client.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'membership_request.reviewed','membership_request',membershipMatch[1],JSON.stringify(item),JSON.stringify(updated.rows[0])]);
+      await client.query('COMMIT');return json(res,200,{ok:true,item:updated.rows[0]});
+    }catch(error){await client.query('ROLLBACK');console.error('Membership review failed:',error.code||error.name);return json(res,500,{error:'Could not update membership request.'})}finally{client.release()}
+  }
   return json(res,404,{error:'Admin endpoint not found.'});
 }
 
@@ -496,6 +658,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 503, { ok:false, api:'v1', database:'unavailable' });
     }
   }
+  if (url.pathname.startsWith('/api/v1/member/')) return handleMemberApi(req,res,url);
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
   const applyMatch=url.pathname.match(/^\/api\/v1\/jobs\/([A-Z0-9-]+)\/apply$/i);
   if(req.method==='POST'&&applyMatch){
@@ -519,6 +682,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/') pathname = '/index.html';
   if (pathname === '/admin') pathname = '/admin.html';
   if (pathname === '/employment') pathname = '/employment.html';
+  if (pathname === '/account') pathname = '/account.html';
   const file = resolve(root, `.${pathname}`);
   if (file !== root && !file.startsWith(root + sep)) return json(res, 400, { error:'Invalid path' });
   try {

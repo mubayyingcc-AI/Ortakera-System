@@ -27,3 +27,19 @@ loadPublishedJobs();
 
 // Shared language preference across Ortakera public pages. Content translations are added per reviewed page catalogue.
 (()=>{const supported=["en","tr","de","ru","ar","pt","it","ja","ko","zh"];const select=document.getElementById('languageSelect');let locale='en';try{locale=localStorage.getItem('ortakera-language')||'en'}catch{}if(!supported.includes(locale))locale='en';const apply=next=>{if(!supported.includes(next))return;locale=next;document.documentElement.lang=next;document.documentElement.dir=next==='ar'?'rtl':'ltr';try{localStorage.setItem('ortakera-language',next)}catch{};if(select)select.value=next;};apply(locale);if(select)select.addEventListener('change',()=>apply(select.value));})();
+
+const employmentMenuToggle=document.getElementById('employmentMenuToggle');
+const employmentNav=document.getElementById('employmentNav');
+if(employmentMenuToggle&&employmentNav){
+ employmentMenuToggle.addEventListener('click',()=>{
+  const open=employmentMenuToggle.getAttribute('aria-expanded')!=='true';
+  employmentMenuToggle.setAttribute('aria-expanded',String(open));
+  employmentMenuToggle.setAttribute('aria-label',open?'Close navigation':'Open navigation');
+  employmentNav.classList.toggle('is-open',open);
+ });
+ employmentNav.querySelectorAll('a').forEach(link=>link.addEventListener('click',()=>{
+  employmentMenuToggle.setAttribute('aria-expanded','false');
+  employmentMenuToggle.setAttribute('aria-label','Open navigation');
+  employmentNav.classList.remove('is-open');
+ }));
+}

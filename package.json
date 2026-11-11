@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "admin:hash": "node scripts/hash-admin-password.js",
-    "check": "node --check server.js && node --check public/app.js && node --check public/employment.js && node --check public/admin.js && node --check scripts/hash-admin-password.js && npm test",
+    "check": "node --check server.js && node --check public/app.js && node --check public/employment.js && node --check public/admin.js && node --check public/account.js && node --check scripts/hash-admin-password.js && npm test",
     "test": "node --test tests/*.test.js"
   },
   "engines": {
