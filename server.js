@@ -472,6 +472,30 @@ async function handleAdminApi(req,res,url) {
       return json(res,200,{items:result.rows});
     } catch(error) { console.error('Admin audit read failed:',error.code||error.name); return json(res,500,{error:'Could not load audit history.'}); }
   }
+  if(req.method==='GET'&&url.pathname==='/api/v1/admin/membership-requests'){
+    const q=await pool.query(`SELECT r.id,r.request_type,r.request_status,r.details,r.created_at,a.id AS account_id,a.email,a.full_name,a.account_type,a.plan,a.account_status,a.organization FROM membership_requests r JOIN member_accounts a ON a.id=r.account_id ORDER BY r.created_at DESC LIMIT 300`);
+    return json(res,200,{items:q.rows});
+  }
+  const membershipMatch=url.pathname.match(/^\/api\/v1\/admin\/membership-requests\/([0-9a-f-]{36})$/i);
+  if(req.method==='PATCH'&&membershipMatch){
+    if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+    let body;try{body=await readBody(req,2000)}catch(error){return json(res,error.status||400,{error:error.message})}
+    if(!['approved','declined'].includes(body.request_status))return json(res,422,{error:'Choose approved or declined.'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const current=await client.query('SELECT r.*,a.account_type,a.plan,a.account_status,a.id AS account_id FROM membership_requests r JOIN member_accounts a ON a.id=r.account_id WHERE r.id=$1 FOR UPDATE',[membershipMatch[1]]);
+      if(!current.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Membership request not found.'})}
+      const item=current.rows[0];
+      if(item.request_status!=='pending'){await client.query('ROLLBACK');return json(res,409,{error:'This request has already been reviewed.'})}
+      if(item.request_type==='subscription'&&body.request_status==='approved')await client.query("UPDATE member_accounts SET plan='subscribed',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      if((item.request_type==='agent'||item.request_type==='partner')&&body.request_status==='approved')await client.query("UPDATE member_accounts SET account_status='active',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      if(body.request_status==='declined'&&(item.request_type==='agent'||item.request_type==='partner'))await client.query("UPDATE member_accounts SET account_status='suspended',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      const updated=await client.query('UPDATE membership_requests SET request_status=$1,reviewed_by=$2,reviewed_at=NOW() WHERE id=$3 RETURNING *',[body.request_status,admin.email,membershipMatch[1]]);
+      await client.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'membership_request.reviewed','membership_request',membershipMatch[1],JSON.stringify(item),JSON.stringify(updated.rows[0])]);
+      await client.query('COMMIT');return json(res,200,{ok:true,item:updated.rows[0]});
+    }catch(error){await client.query('ROLLBACK');console.error('Membership review failed:',error.code||error.name);return json(res,500,{error:'Could not update membership request.'})}finally{client.release()}
+  }
   return json(res,404,{error:'Admin endpoint not found.'});
 }
 
@@ -587,6 +611,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/') pathname = '/index.html';
   if (pathname === '/admin') pathname = '/admin.html';
   if (pathname === '/employment') pathname = '/employment.html';
+  if (pathname === '/account') pathname = '/account.html';
   const file = resolve(root, `.${pathname}`);
   if (file !== root && !file.startsWith(root + sep)) return json(res, 400, { error:'Invalid path' });
   try {
