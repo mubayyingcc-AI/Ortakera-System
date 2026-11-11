@@ -15,7 +15,8 @@ test('member portal is served and linked from public pages', async () => {
 test('member API supports free, agent and partner registration without self-assigning paid status', async () => {
  const server=await read('server.js');
  for(const route of ['/api/v1/member/register','/api/v1/member/login','/api/v1/member/logout','/api/v1/member/me','/api/v1/member/requests'])assert.ok(server.includes(route));
- assert.ok(server.includes("['member','agent','partner']"));
+ assert.ok(server.includes("account_type IN ('member','agent','partner','employer')"));
+ assert.ok(server.includes("['member','agent','partner','employer'].includes(type)"));
  assert.ok(server.includes("type==='member'?'active':'pending_review'"));
  assert.ok(server.includes("plan TEXT NOT NULL DEFAULT 'free'"));
  assert.ok(server.includes("a.plan==='subscribed'"));
@@ -68,4 +69,26 @@ test('membership approval requires auditable evidence before activating privileg
  assert.ok(server.includes("evidence_reference:evidenceReference,verification_note:verificationNote"));
  assert.ok(admin.includes('evidence_reference:reference?.value||'));
  assert.ok(admin.includes('verification_note:verification?.value||'));
+});
+
+test('employer accounts require review and can submit account-linked hiring requirements', async () => {
+ const [server,html,client,admin]=await Promise.all([read('server.js'),read('public/account.html'),read('public/account.js'),read('public/admin.js')]);
+ assert.ok(server.includes("account_type IN ('member','agent','partner','employer')"));
+ assert.ok(server.includes("request_type IN ('subscription','agent','partner','employer')"));
+ assert.ok(server.includes("url.pathname==='/api/v1/employer/vacancies'"));
+ assert.ok(server.includes("url.pathname==='/api/v1/employer/applications'"));
+ assert.ok(server.includes("status='under_review',FALSE,FALSE"));
+ assert.ok(server.includes('employer_account_id'));
+ assert.ok(html.includes('id="employerForm"')&&html.includes('value="employer"'));
+ assert.ok(client.includes("api('/api/v1/employer/vacancies')")&&client.includes("api('/api/v1/employer/applications')"));
+ assert.ok(server.includes("['agent','partner','employer'].includes(item.request_type)"));
+ assert.ok(admin.includes('loadMembershipRequests'));
+});
+
+test('employers can review only their own applications with an audit record', async () => {
+ const [server,client]=await Promise.all([read('server.js'),read('public/account.js')]);
+ assert.ok(server.includes("url.pathname.match(/^\\\\/api\\\\/v1\\\\/employer\\\\/applications\\\\/[0-9a-f-]{36}$/i)"));
+ assert.ok(server.includes('v.employer_account_id=$2 FOR UPDATE'));
+ assert.ok(server.includes('employer.application.status.changed'));
+ assert.ok(client.includes("api('/api/v1/employer/applications/'+encodeURIComponent(item.id)"));
 });

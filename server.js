@@ -193,6 +193,12 @@ async function migrate() {
       UNIQUE(account_id,vacancy_id)
     );
     CREATE INDEX IF NOT EXISTS member_job_applications_account_idx ON member_job_applications(account_id,created_at DESC);
+    ALTER TABLE member_accounts DROP CONSTRAINT IF EXISTS member_accounts_account_type_check;
+    ALTER TABLE member_accounts ADD CONSTRAINT member_accounts_account_type_check CHECK(account_type IN ('member','agent','partner','employer'));
+    ALTER TABLE membership_requests DROP CONSTRAINT IF EXISTS membership_requests_request_type_check;
+    ALTER TABLE membership_requests ADD CONSTRAINT membership_requests_request_type_check CHECK(request_type IN ('subscription','agent','partner','employer'));
+    ALTER TABLE vacancies ADD COLUMN IF NOT EXISTS employer_account_id UUID REFERENCES member_accounts(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS vacancies_employer_idx ON vacancies(employer_account_id,created_at DESC);
   `);
 
 }
@@ -323,7 +329,7 @@ async function handleMemberApi(req,res,url){
   if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
   let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
   const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',type=b.account_type||'member',org=clean(b.organization,180)||null;
-  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<12||password.length>200||!['member','agent','partner'].includes(type)||((type==='agent'||type==='partner')&&!org))return json(res,422,{error:'Enter valid details. Password must contain at least 12 characters; agents and partners must provide an organisation.'});
+  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<12||password.length>200||!['member','agent','partner','employer'].includes(type)||(['agent','partner','employer'].includes(type)&&!org))return json(res,422,{error:'Enter valid details. Password must contain at least 12 characters; agents, partners and employers must provide an organisation.'});
   const id=randomUUID(),pw=await memberPassword(password),status=type==='member'?'active':'pending_review';
   const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO member_accounts(id,email,full_name,password_salt,password_hash,account_type,account_status,organization) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,email,name,pw.salt,pw.hash,type,status,org]);if(type!=='member')await client.query('INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,$3,$4::jsonb)',[randomUUID(),id,type,JSON.stringify({organization:org})]);await client.query('COMMIT');return json(res,201,{ok:true,account:{id,email,full_name:name,account_type:type,plan:'free',account_status:status},message:type==='member'?'Free account created. Sign in.':'Application received; access is pending review.'});}catch(e){await client.query('ROLLBACK');if(e.code==='23505')return json(res,409,{error:'An account with this email already exists.'});console.error('Member registration:',e.code||e.name);return json(res,500,{error:'Could not create account.'});}finally{client.release()}
  }
@@ -345,6 +351,40 @@ async function handleMemberApi(req,res,url){
  const a=await currentMember(req);
  if(req.method==='GET'&&url.pathname==='/api/v1/member/me'){if(!a)return json(res,401,{error:'Sign in required.'});return json(res,200,{ok:true,account:a});}
 
+
+ if(req.method==='GET'&&url.pathname==='/api/v1/employer/vacancies'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='employer'||a.account_status!=='active')return json(res,403,{error:'An approved employer account is required.'});
+  const q=await pool.query('SELECT v.*,COUNT(ma.id)::int AS application_count FROM vacancies v LEFT JOIN member_job_applications ma ON ma.vacancy_id=v.id WHERE v.employer_account_id=$1 GROUP BY v.id ORDER BY v.created_at DESC',[a.id]);return json(res,200,{items:q.rows});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/employer/vacancies'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='employer'||a.account_status!=='active')return json(res,403,{error:'An approved employer account is required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,7000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const title=clean(b.title,140),sector=clean(b.sector,100),location=clean(b.location,160),description=clean(b.description,4000),pay=clean(b.gross_pay_range,120),type=clean(b.employment_type,50)||'Full-time',count=Number(b.headcount||1),auth=b.work_authorisation||'not_assessed';
+  if(title.length<3||sector.length<2||location.length<2||description.length<40||!Number.isInteger(count)||count<1||count>500||!['Full-time','Part-time','Contract','Temporary','Seasonal'].includes(type)||!['domestic_only','case_by_case','not_assessed'].includes(auth))return json(res,422,{error:'Provide a valid role, sector, location, detailed working conditions, headcount and work-authorisation position.'});
+  const id=randomUUID(),ref='ORT-'+randomBytes(5).toString('hex').toUpperCase();
+  const q=await pool.query("INSERT INTO vacancies(id,reference_code,employer_name,title,sector,location,description,gross_pay_range,employment_type,headcount,work_authorisation,status,employer_verified,legal_route_checked,created_by,employer_account_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'under_review',FALSE,FALSE,$12,$13) RETURNING id,reference_code,title,status,created_at",[id,ref,a.organization||a.full_name,title,sector,location,description,pay,type,count,auth,a.email,a.id]);
+  return json(res,201,{ok:true,item:q.rows[0],message:'Hiring requirement saved for review. It is not published and candidates cannot apply yet.'});
+ }
+ if(req.method==='GET'&&url.pathname==='/api/v1/employer/applications'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='employer'||a.account_status!=='active')return json(res,403,{error:'An approved employer account is required.'});
+  const q=await pool.query('SELECT ma.id,ma.status,ma.created_at,ma.updated_at,v.reference_code,v.title,v.location,ma.account_id FROM member_job_applications ma JOIN vacancies v ON v.id=ma.vacancy_id WHERE v.employer_account_id=$1 ORDER BY ma.created_at DESC',[a.id]);return json(res,200,{items:q.rows});
+ }
+
+ if(req.method==='PATCH'&&url.pathname.match(/^\\/api\\/v1\\/employer\\/applications\\/[0-9a-f-]{36}$/i)){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='employer'||a.account_status!=='active')return json(res,403,{error:'An approved employer account is required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1500)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const allowed=['screening','shortlisted','interview','offered','declined'];
+  if(!allowed.includes(b.status))return json(res,422,{error:'Choose a valid application status.'});
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const current=await client.query('SELECT ma.*,v.title,v.reference_code FROM member_job_applications ma JOIN vacancies v ON v.id=ma.vacancy_id WHERE ma.id=$1 AND v.employer_account_id=$2 FOR UPDATE',[url.pathname.split('/').pop(),a.id]);
+   if(!current.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Application not found for this employer.'})}
+   const updated=await client.query('UPDATE member_job_applications SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING id,status,updated_at',[b.status,current.rows[0].id]);
+   await client.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[a.email,'employer.application.status.changed','member_job_application',current.rows[0].id,JSON.stringify({status:current.rows[0].status}),JSON.stringify(updated.rows[0])]);
+   await client.query('COMMIT');return json(res,200,{ok:true,item:updated.rows[0]});
+  }catch(e){await client.query('ROLLBACK');console.error('Employer application update failed:',e.code||e.name);return json(res,500,{error:'Could not update application.'})}finally{client.release()}
+ }
  if(req.method==='GET'&&url.pathname==='/api/v1/member/jobs'){
   if(!a)return json(res,401,{error:'Sign in required.'});
   const q=await pool.query(`SELECT v.reference_code,v.title,v.sector,v.location,v.description,v.gross_pay_range,v.employment_type,v.headcount,v.created_at,(sv.account_id IS NOT NULL) AS saved,(ma.id IS NOT NULL) AS applied FROM vacancies v LEFT JOIN member_saved_vacancies sv ON sv.vacancy_id=v.id AND sv.account_id=$1 LEFT JOIN member_job_applications ma ON ma.vacancy_id=v.id AND ma.account_id=$1 WHERE v.status='published' AND v.employer_verified=TRUE AND v.legal_route_checked=TRUE ORDER BY v.created_at DESC LIMIT 100`,[a.id]);
@@ -559,9 +599,9 @@ async function handleAdminApi(req,res,url) {
       if(item.request_status!=='pending'){await client.query('ROLLBACK');return json(res,409,{error:'This request has already been reviewed.'})}
       if(body.request_status==='approved'&&(!evidenceReference||verificationNote.length<10)){await client.query('ROLLBACK');return json(res,422,{error:item.request_type==='subscription'?'Provide a payment or approved-arrangement reference and a verification note of at least 10 characters.':'Provide a due-diligence evidence reference and a verification note of at least 10 characters.'})}
       if(item.request_type==='subscription'&&body.request_status==='approved')await client.query("UPDATE member_accounts SET plan='subscribed',updated_at=NOW() WHERE id=$1",[item.account_id]);
-      if((item.request_type==='agent'||item.request_type==='partner')&&body.request_status==='approved')await client.query("UPDATE member_accounts SET account_status='active',updated_at=NOW() WHERE id=$1",[item.account_id]);
-      if(body.request_status==='declined'&&(item.request_type==='agent'||item.request_type==='partner'))await client.query("UPDATE member_accounts SET account_status='suspended',updated_at=NOW() WHERE id=$1",[item.account_id]);
-      const detailPatch=item.request_type==='subscription'&&body.request_status==='approved'?{evidence_reference:evidenceReference,verification_note:verificationNote,verified_by:admin.email,verified_at:new Date().toISOString()}:{};
+      if(['agent','partner','employer'].includes(item.request_type)&&body.request_status==='approved')await client.query("UPDATE member_accounts SET account_status='active',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      if(body.request_status==='declined'&&['agent','partner','employer'].includes(item.request_type))await client.query("UPDATE member_accounts SET account_status='suspended',updated_at=NOW() WHERE id=$1",[item.account_id]);
+      const detailPatch=body.request_status==='approved'?{evidence_reference:evidenceReference,verification_note:verificationNote,verified_by:admin.email,verified_at:new Date().toISOString()}: {review_note:verificationNote,reviewed_by:admin.email,reviewed_at:new Date().toISOString()};
       const updated=await client.query('UPDATE membership_requests SET request_status=$1,details=details || $2::jsonb,reviewed_by=$3,reviewed_at=NOW() WHERE id=$4 RETURNING *',[body.request_status,JSON.stringify(detailPatch),admin.email,membershipMatch[1]]);
       await client.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'membership_request.reviewed','membership_request',membershipMatch[1],JSON.stringify(item),JSON.stringify(updated.rows[0])]);
       await client.query('COMMIT');return json(res,200,{ok:true,item:updated.rows[0]});

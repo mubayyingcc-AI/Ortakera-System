@@ -2,7 +2,7 @@ const $=id=>document.getElementById(id),message=$('message');
 async function api(path,options={}){const r=await fetch(path,{credentials:'same-origin',...options,headers:{accept:'application/json',...(options.body?{'content-type':'application/json'}:{}),...(options.headers||{})}});const d=await r.json().catch(()=>({error:'Unexpected server response'}));if(!r.ok)throw Error(d.error||'Request failed');return d}
 function note(text){message.textContent=text}
 function formData(form){return Object.fromEntries(new FormData(form).entries())}
-function show(account){loadProfile();loadMemberJobs();loadMemberApplications();$('signedOut').classList.add('hidden');$('signedIn').classList.remove('hidden');$('welcome').textContent='Welcome, '+account.full_name;$('accountDetails').textContent='Email: '+account.email+'\nAccount type: '+account.account_type+'\nMembership: '+account.plan+'\nStatus: '+account.account_status+(account.organization?'\nOrganisation: '+account.organization:'');$('requestSubscription').disabled=account.plan==='subscribed'||account.account_status!=='active';loadRequests()}
+function show(account){loadProfile();loadMemberJobs();loadMemberApplications();loadEmployerWorkspace(account);$('signedOut').classList.add('hidden');$('signedIn').classList.remove('hidden');$('welcome').textContent='Welcome, '+account.full_name;$('accountDetails').textContent='Email: '+account.email+'\nAccount type: '+account.account_type+'\nMembership: '+account.plan+'\nStatus: '+account.account_status+(account.organization?'\nOrganisation: '+account.organization:'');$('requestSubscription').disabled=account.plan==='subscribed'||account.account_status!=='active';loadRequests()}
 async function loadMe(){try{const d=await api('/api/v1/member/me');show(d.account)}catch{$('signedOut').classList.remove('hidden');$('signedIn').classList.add('hidden')}}
 async function submit(form,path){const button=form.querySelector('button');button.disabled=true;try{const d=await api(path,{method:'POST',body:JSON.stringify(formData(form))});if(path.endsWith('/login')){show(d.account);note('Signed in successfully.')}else{form.reset();note(d.message||'Request received.')} }catch(e){note(e.message)}finally{button.disabled=false}}
 $('loginForm').addEventListener('submit',e=>{e.preventDefault();submit(e.currentTarget,'/api/v1/member/login')});
@@ -33,3 +33,26 @@ async function loadMemberJobs(){
  }catch(e){host.textContent=e.message}
 }
 async function loadMemberApplications(){const host=$('memberApplications');if(!host)return;try{const d=await api('/api/v1/member/applications');host.textContent=d.items.length?d.items.map(x=>x.title+' · '+x.reference_code+' · '+x.status+' · '+new Date(x.created_at).toLocaleDateString()).join('\\n'):'No applications submitted from this account yet.'}catch(e){host.textContent=e.message}}
+
+async function loadEmployerWorkspace(account){
+ const form=$('employerForm');if(!form)return;
+ const enabled=account.account_type==='employer'&&account.account_status==='active';
+ form.querySelectorAll('input,select,textarea,button').forEach(el=>el.disabled=!enabled);
+ $('employerMessage').textContent=enabled?'Approved employer access. New hiring requirements enter review before publication.':account.account_type==='employer'?'Your employer application is pending review.':'Employer tools are reserved for approved employer accounts.';
+ if(!enabled)return;
+ try{
+  const [vacancies,applications]=await Promise.all([api('/api/v1/employer/vacancies'),api('/api/v1/employer/applications')]);
+  const host=$('employerVacancies');host.replaceChildren();
+  if(!vacancies.items.length)host.textContent='No hiring requirements submitted yet.';
+  for(const v of vacancies.items){const item=document.createElement('p');item.textContent=[v.reference_code,v.title,v.location,v.status,'Applications: '+v.application_count].join(' · ');host.append(item)}
+  const appHost=$('employerApplications');appHost.replaceChildren();
+  if(!applications.items.length)appHost.textContent='No applications have been received for your published vacancies.';
+  for(const item of applications.items){const row=document.createElement('div');row.className='account-status';const summary=document.createElement('p');summary.textContent=[item.title,item.reference_code,item.status,new Date(item.created_at).toLocaleDateString()].join(' · ');row.append(summary);const select=document.createElement('select');for(const status of ['screening','shortlisted','interview','offered','declined']){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=status===item.status;select.append(option)}const button=document.createElement('button');button.type='button';button.textContent='Update application';button.addEventListener('click',async()=>{button.disabled=true;try{await api('/api/v1/employer/applications/'+encodeURIComponent(item.id),{method:'PATCH',body:JSON.stringify({status:select.value})});await loadEmployerWorkspace(account)}catch(error){$('employerMessage').textContent=error.message;button.disabled=false}});row.append(select,button);appHost.append(row)}
+ }catch(e){$('employerMessage').textContent=e.message}
+}
+$('employerForm')?.addEventListener('submit',async e=>{
+ e.preventDefault();const form=e.currentTarget,button=form.querySelector('button');button.disabled=true;$('employerMessage').textContent='Submitting for review…';
+ try{const payload=formData(form);const d=await api('/api/v1/employer/vacancies',{method:'POST',body:JSON.stringify(payload)});$('employerMessage').textContent=d.message+' Reference: '+d.item.reference_code;form.reset();const me=await api('/api/v1/member/me');await loadEmployerWorkspace(me.account)}
+ catch(err){$('employerMessage').textContent=err.message}
+ finally{button.disabled=false}
+});
