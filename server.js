@@ -422,7 +422,7 @@ async function handleEnquiry(req, res) {
   const organization = clean(body.organization, 160) || null;
   const interest = clean(body.interest, 40);
   const message = clean(body.message, 4000);
-  const locale = ['en','tr','ar','fr','de'].includes(body.locale) ? body.locale : 'en';
+  const locale = ['en','tr','de','ru','ar','pt','it','ja','ko','zh'].includes(body.locale) ? body.locale : 'en';
   const consent = body.consent === true;
   const fields = body.fields && typeof body.fields === 'object' ? body.fields : {};
   const validInterests = ['business','partnership','capability','other','employment_candidate','employer_hiring','recruitment_partner','job_check','job_subscription'];
