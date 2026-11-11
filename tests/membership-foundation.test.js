@@ -49,3 +49,15 @@ test('member profile is account-scoped, allow-listed and connected to the portal
  assert.ok(html.includes('id="profileForm"'));
  assert.ok(client.includes("api('/api/v1/member/profile'"));
 });
+
+test('member workspace lists only verified published vacancies and tracks saved jobs and applications', async () => {
+ const [server,html,client]=await Promise.all([read('server.js'),read('public/account.html'),read('public/account.js')]);
+ assert.ok(server.includes('CREATE TABLE IF NOT EXISTS member_saved_vacancies'));
+ assert.ok(server.includes('CREATE TABLE IF NOT EXISTS member_job_applications'));
+ assert.ok(server.includes("url.pathname==='/api/v1/member/jobs'"));
+ assert.ok(server.includes("url.pathname==='/api/v1/member/saved-jobs'"));
+ assert.ok(server.includes("url.pathname==='/api/v1/member/applications'"));
+ assert.ok(server.includes("v.status='published' AND v.employer_verified=TRUE AND v.legal_route_checked=TRUE"));
+ assert.ok(html.includes('id="memberJobs"')&&html.includes('id="memberApplications"'));
+ assert.ok(client.includes("api('/api/v1/member/jobs')")&&client.includes("api('/api/v1/member/applications')"));
+});
