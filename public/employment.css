@@ -316,3 +316,252 @@
   .employment-form select,
   .employment-form textarea { font-size:14px; }
 }
+
+
+/* Final consent, submit and feedback containment.
+   These are the last controls in each form and must never inherit
+   a two-column layout or overflow their white form surface. */
+.employment-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: row;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: stretch;
+  justify-items: stretch;
+  overflow: hidden;
+}
+
+.employment-form > .consent-row,
+.employment-form > .form-submit,
+.employment-form > button[type="submit"],
+.employment-form > .form-foot,
+.employment-form > [aria-live="polite"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+  margin-inline: 0;
+}
+
+.employment-form > .consent-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 0;
+  white-space: normal;
+  text-align: left;
+  overflow: hidden;
+}
+
+.employment-form > .consent-row > input[type="checkbox"] {
+  grid-column: 1;
+  grid-row: 1;
+  float: none;
+  position: static;
+  align-self: start;
+  justify-self: start;
+  margin: 2px 0 0;
+}
+
+.employment-form > .consent-row > span {
+  grid-column: 2;
+  grid-row: 1;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.65;
+  text-align: left;
+}
+
+.employment-form > .consent-row a {
+  display: inline;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.employment-form > .form-submit,
+.employment-form > button[type="submit"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: center;
+}
+
+.employment-form > .form-foot,
+.employment-form > p[aria-live="polite"] {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: left;
+  line-height: 1.6;
+  padding: 0;
+}
+
+.employment-form > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 600px) {
+  .employment-form {
+    padding: 20px 14px;
+    gap: 15px;
+  }
+  .employment-form > .consent-row {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 9px;
+  }
+  .employment-form > .consent-row > span {
+    font-size: 11px;
+    line-height: 1.6;
+  }
+}
+
+
+/* Definitive last-row containment for every employment form.
+   Target the actual label/span/p elements, overriding shared site styles. */
+form.employment-form {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-auto-flow: row !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+form.employment-form > label.consent-row,
+form.employment-form label.consent-row {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) !important;
+  grid-auto-flow: row !important;
+  align-items: start !important;
+  justify-content: stretch !important;
+  justify-items: stretch !important;
+  column-gap: 10px !important;
+  row-gap: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+  white-space: normal !important;
+  overflow: visible !important;
+}
+
+form.employment-form label.consent-row > input[type="checkbox"] {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  display: block !important;
+  position: static !important;
+  float: none !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  margin: 2px 0 0 !important;
+  padding: 0 !important;
+  justify-self: start !important;
+  align-self: start !important;
+}
+
+form.employment-form label.consent-row > span {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  display: block !important;
+  position: static !important;
+  float: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  text-align: left !important;
+  line-height: 1.65 !important;
+}
+
+form.employment-form label.consent-row a {
+  display: inline !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+form.employment-form > button.form-submit,
+form.employment-form > .form-submit {
+  display: flex !important;
+  position: static !important;
+  float: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  min-height: 48px !important;
+  margin: 0 !important;
+  padding: 13px 16px !important;
+  justify-content: center !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  line-height: 1.45 !important;
+  text-align: center !important;
+}
+
+form.employment-form > p.form-foot,
+form.employment-form > p[aria-live="polite"],
+form.employment-form p.form-foot {
+  display: block !important;
+  position: static !important;
+  float: none !important;
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  text-align: left !important;
+  line-height: 1.65 !important;
+}
+
+form.employment-form > *,
+form.employment-form > * > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+@media (max-width: 600px) {
+  form.employment-form {
+    padding: 20px 14px !important;
+    gap: 15px !important;
+  }
+  form.employment-form label.consent-row {
+    grid-template-columns: 18px minmax(0, 1fr) !important;
+    column-gap: 9px !important;
+  }
+  form.employment-form label.consent-row > span,
+  form.employment-form p.form-foot {
+    font-size: 11px !important;
+    line-height: 1.6 !important;
+  }
+}
