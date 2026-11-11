@@ -39,3 +39,13 @@ test('admin review controls agent, partner and subscription entitlements', async
  assert.ok(admin.includes('id="loadMembership"'));
  assert.ok(adminClient.includes('loadMembershipRequests'));
 });
+
+test('member profile is account-scoped, allow-listed and connected to the portal', async () => {
+ const [server,html,client]=await Promise.all([read('server.js'),read('public/account.html'),read('public/account.js')]);
+ assert.ok(server.includes('CREATE TABLE IF NOT EXISTS member_profiles'));
+ assert.ok(server.includes("url.pathname==='/api/v1/member/profile'"));
+ assert.ok(server.includes("const allowed=['country','city','bio','preferred_sectors','preferred_roles','languages','website','operating_regions','specialisms','licensing_status']"));
+ assert.ok(server.includes('ON CONFLICT(account_id) DO UPDATE'));
+ assert.ok(html.includes('id="profileForm"'));
+ assert.ok(client.includes("api('/api/v1/member/profile'"));
+});
