@@ -179,6 +179,20 @@ async function migrate() {
       details JSONB NOT NULL DEFAULT '{}'::jsonb, reviewed_by TEXT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS membership_requests_status_idx ON membership_requests(request_status,created_at DESC);
+    CREATE TABLE IF NOT EXISTS member_saved_vacancies (
+      account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      vacancy_id UUID NOT NULL REFERENCES vacancies(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY(account_id,vacancy_id)
+    );
+    CREATE TABLE IF NOT EXISTS member_job_applications (
+      id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      vacancy_id UUID NOT NULL REFERENCES vacancies(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'received' CHECK(status IN ('received','screening','shortlisted','interview','offered','declined','withdrawn')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(account_id,vacancy_id)
+    );
+    CREATE INDEX IF NOT EXISTS member_job_applications_account_idx ON member_job_applications(account_id,created_at DESC);
   `);
 
 }
@@ -330,6 +344,35 @@ async function handleMemberApi(req,res,url){
  if(req.method==='POST'&&url.pathname==='/api/v1/member/logout'){if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});const token=cookieValue(req,MEMBER_COOKIE);if(token){const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');await pool.query('DELETE FROM member_sessions WHERE token_hash=$1',[hash]);}memberCookieClear(res);return json(res,200,{ok:true});}
  const a=await currentMember(req);
  if(req.method==='GET'&&url.pathname==='/api/v1/member/me'){if(!a)return json(res,401,{error:'Sign in required.'});return json(res,200,{ok:true,account:a});}
+
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/jobs'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  const q=await pool.query(`SELECT v.reference_code,v.title,v.sector,v.location,v.description,v.gross_pay_range,v.employment_type,v.headcount,v.created_at,(sv.account_id IS NOT NULL) AS saved,(ma.id IS NOT NULL) AS applied FROM vacancies v LEFT JOIN member_saved_vacancies sv ON sv.vacancy_id=v.id AND sv.account_id=$1 LEFT JOIN member_job_applications ma ON ma.vacancy_id=v.id AND ma.account_id=$1 WHERE v.status='published' AND v.employer_verified=TRUE AND v.legal_route_checked=TRUE ORDER BY v.created_at DESC LIMIT 100`,[a.id]);
+  return json(res,200,{items:q.rows});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/saved-jobs'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const ref=clean(b.reference_code,40).toUpperCase();if(!ref)return json(res,422,{error:'Opportunity reference is required.'});
+  const v=await pool.query("SELECT id FROM vacancies WHERE reference_code=$1 AND status='published' AND employer_verified=TRUE AND legal_route_checked=TRUE",[ref]);if(!v.rowCount)return json(res,404,{error:'This opportunity is not currently available.'});
+  await pool.query('INSERT INTO member_saved_vacancies(account_id,vacancy_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[a.id,v.rows[0].id]);return json(res,200,{ok:true,saved:true});
+ }
+ if(req.method==='DELETE'&&url.pathname==='/api/v1/member/saved-jobs'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const ref=clean(b.reference_code,40).toUpperCase();await pool.query('DELETE FROM member_saved_vacancies sv USING vacancies v WHERE sv.vacancy_id=v.id AND sv.account_id=$1 AND v.reference_code=$2',[a.id,ref]);return json(res,200,{ok:true,saved:false});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/applications'){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='member')return json(res,403,{error:'This account type cannot submit candidate applications.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1500)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const ref=clean(b.reference_code,40).toUpperCase();if(!ref)return json(res,422,{error:'Opportunity reference is required.'});
+  const v=await pool.query("SELECT id FROM vacancies WHERE reference_code=$1 AND status='published' AND employer_verified=TRUE AND legal_route_checked=TRUE",[ref]);if(!v.rowCount)return json(res,404,{error:'This opportunity is not currently available.'});
+  try{const q=await pool.query("INSERT INTO member_job_applications(id,account_id,vacancy_id) VALUES($1,$2,$3) RETURNING id,status,created_at",[randomUUID(),a.id,v.rows[0].id]);return json(res,201,{ok:true,application:q.rows[0]})}catch(e){if(e.code==='23505')return json(res,409,{error:'You have already applied for this opportunity.'});throw e}
+ }
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/applications'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  const q=await pool.query('SELECT m.id,m.status,m.created_at,m.updated_at,v.reference_code,v.title,v.location FROM member_job_applications m JOIN vacancies v ON v.id=m.vacancy_id WHERE m.account_id=$1 ORDER BY m.created_at DESC',[a.id]);return json(res,200,{items:q.rows});
+ }
  if(req.method==='GET'&&url.pathname==='/api/v1/member/profile'){
   if(!a)return json(res,401,{error:'Sign in required.'});
   const q=await pool.query('SELECT profile,updated_at FROM member_profiles WHERE account_id=$1',[a.id]);
