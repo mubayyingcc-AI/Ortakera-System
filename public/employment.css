@@ -130,3 +130,189 @@
  .employment-nav.is-open a{padding:12px 4px;border-bottom:1px solid #edf0f3;font-size:13px}
  .employment-nav.is-open a:last-child{border-bottom:0}
 }
+
+
+/* Form layout hardening — prevent field overflow, collision and cramped columns */
+.employment-form,
+.employment-form *,
+.employment-form *::before,
+.employment-form *::after,
+.verification-fee-panel,
+.verification-fee-panel * { box-sizing:border-box; }
+
+.employment-form {
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  align-content:start;
+  justify-items:stretch;
+  gap:18px;
+  border-radius:10px;
+}
+
+.employment-form .form-head,
+.employment-form label,
+.employment-form .form-row,
+.employment-form .form-foot,
+.employment-form .form-submit {
+  width:100%;
+  max-width:100%;
+  min-width:0;
+}
+
+.employment-form .form-head {
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:flex-start;
+  gap:7px;
+  overflow-wrap:anywhere;
+}
+
+.employment-form .form-head b,
+.employment-form .form-head small,
+.employment-form label,
+.employment-form label span {
+  min-width:0;
+  max-width:100%;
+  overflow-wrap:anywhere;
+}
+
+.employment-form .form-row {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  align-items:start;
+  gap:16px;
+  margin:0;
+}
+
+.employment-form .form-row > label {
+  min-width:0;
+  width:100%;
+}
+
+.employment-form input:not([type="checkbox"]),
+.employment-form select,
+.employment-form textarea {
+  display:block;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  min-height:46px;
+  box-sizing:border-box;
+  margin:0;
+  line-height:1.45;
+}
+
+.employment-form textarea {
+  min-height:112px;
+  height:auto;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+
+.employment-form select {
+  white-space:normal;
+  text-overflow:ellipsis;
+}
+
+.employment-form .consent-row {
+  display:grid;
+  grid-template-columns:18px minmax(0,1fr);
+  align-items:start;
+  gap:11px;
+  width:100%;
+  min-width:0;
+  line-height:1.65;
+  overflow-wrap:anywhere;
+}
+
+.employment-form .consent-row input[type="checkbox"] {
+  display:block;
+  width:18px;
+  min-width:18px;
+  max-width:18px;
+  height:18px;
+  min-height:18px;
+  margin:2px 0 0;
+  padding:0;
+  flex:none;
+}
+
+.employment-form .consent-row span {
+  display:block;
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+
+.employment-form .form-submit {
+  min-height:48px;
+  white-space:normal;
+  line-height:1.4;
+  overflow-wrap:anywhere;
+}
+
+.employment-form .form-foot {
+  margin:0;
+  overflow-wrap:anywhere;
+}
+
+.employment-form-section .employment-form-grid,
+.employment-form-section .employment-form-copy,
+.employment-form-section .verification-fee-panel {
+  min-width:0;
+  max-width:100%;
+}
+
+.job-check-section .employment-form-grid {
+  grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);
+  align-items:start;
+}
+
+.job-check-section form.employment-form {
+  min-width:0;
+  max-width:100%;
+}
+
+.verification-fee-grid {
+  grid-template-columns:repeat(3,minmax(0,1fr));
+}
+
+.verification-fee-grid > div {
+  min-width:0;
+  overflow-wrap:anywhere;
+}
+
+@media(max-width:900px) {
+  .employment-form-grid {
+    grid-template-columns:minmax(0,1fr);
+    gap:32px;
+  }
+  .job-check-section .employment-form-grid {
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto;
+    gap:24px;
+  }
+  .job-check-section .employment-form-copy,
+  .job-check-section .verification-fee-panel,
+  .job-check-section form.employment-form {
+    grid-column:1;
+    grid-row:auto;
+  }
+}
+
+@media(max-width:600px) {
+  .employment-form-section { padding:58px 0; }
+  .employment-form { padding:22px 16px; gap:16px; }
+  .employment-form .form-row { grid-template-columns:minmax(0,1fr); gap:16px; }
+  .verification-fee-grid { grid-template-columns:minmax(0,1fr); }
+  .verification-fee-panel { padding:18px 15px; }
+}
+
+@media(max-width:360px) {
+  .employment-form { padding:18px 12px; }
+  .employment-form .form-head b { font-size:17px; }
+  .employment-form input:not([type="checkbox"]),
+  .employment-form select,
+  .employment-form textarea { font-size:14px; }
+}
