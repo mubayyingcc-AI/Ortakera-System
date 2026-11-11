@@ -162,6 +162,11 @@ async function migrate() {
       account_status TEXT NOT NULL DEFAULT 'active' CHECK(account_status IN ('active','pending_review','suspended','closed')),
       organization TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ
     );
+    CREATE TABLE IF NOT EXISTS member_profiles (
+      account_id UUID PRIMARY KEY REFERENCES member_accounts(id) ON DELETE CASCADE,
+      profile JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS member_sessions (
       id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
       token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -325,6 +330,24 @@ async function handleMemberApi(req,res,url){
  if(req.method==='POST'&&url.pathname==='/api/v1/member/logout'){if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});const token=cookieValue(req,MEMBER_COOKIE);if(token){const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');await pool.query('DELETE FROM member_sessions WHERE token_hash=$1',[hash]);}memberCookieClear(res);return json(res,200,{ok:true});}
  const a=await currentMember(req);
  if(req.method==='GET'&&url.pathname==='/api/v1/member/me'){if(!a)return json(res,401,{error:'Sign in required.'});return json(res,200,{ok:true,account:a});}
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/profile'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  const q=await pool.query('SELECT profile,updated_at FROM member_profiles WHERE account_id=$1',[a.id]);
+  return json(res,200,{profile:q.rows[0]?.profile||{},updated_at:q.rows[0]?.updated_at||null});
+ }
+ if(req.method==='PATCH'&&url.pathname==='/api/v1/member/profile'){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  if(!b||typeof b!=='object'||Array.isArray(b))return json(res,400,{error:'Profile must be an object.'});
+  const allowed=['country','city','bio','preferred_sectors','preferred_roles','languages','website','operating_regions','specialisms','licensing_status'];
+  const profile={};
+  for(const key of allowed){if(b[key]!==undefined){if(typeof b[key]!=='string')return json(res,422,{error:'Profile fields must be text.'});profile[key]=clean(b[key],key==='bio'?1200: key==='website'?240: key==='licensing_status'?80:300)}}
+  if(profile.website&&!/^https:\/\//i.test(profile.website))return json(res,422,{error:'Website must use an https:// address.'});
+  if(['agent','partner'].includes(a.account_type)&&profile.licensing_status&& !['licensed','applying','not_required','unsure'].includes(profile.licensing_status))return json(res,422,{error:'Choose a valid authorisation status.'});
+  const saved=await pool.query("INSERT INTO member_profiles(account_id,profile,updated_at) VALUES($1,$2::jsonb,NOW()) ON CONFLICT(account_id) DO UPDATE SET profile=member_profiles.profile || EXCLUDED.profile,updated_at=NOW() RETURNING profile,updated_at",[a.id,JSON.stringify(profile)]);
+  return json(res,200,{ok:true,...saved.rows[0]});
+ }
  if(!a)return json(res,401,{error:'Sign in required.'});
  if(a.account_status!=='active')return json(res,403,{error:'Account is pending review or inactive.'});
  if(req.method==='POST'&&url.pathname==='/api/v1/member/requests'){
