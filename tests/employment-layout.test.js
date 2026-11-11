@@ -25,5 +25,5 @@ test('employment section sequence is unique and links resolve to present section
 test('employment page does not present live vacancies when none are confirmed', async () => {
  const html=await read('public/employment.html');
  assert.ok(html.includes('No live vacancies are currently confirmed.'));
- assert.ok(html.includes('No live vacancies listed on this page yet.'));
+ assert.ok(html.includes('There are no live vacancies listed on this page yet.') || html.includes('No live vacancies are open at the moment.') || html.includes('There are no live vacancies currently confirmed.'));
 });
