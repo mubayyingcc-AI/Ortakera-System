@@ -65,3 +65,21 @@
 .job-check-section{background:#112a43}.job-check-section .employment-form{background:#fff}.job-check-section .employment-form-copy ul{padding-left:20px;line-height:1.9;color:#d7e0ea}.job-check-section .employment-form-copy li{margin:7px 0}.official-check-links{line-height:2}.official-check-links a{color:#fff;text-decoration:underline}.employment-form textarea{width:100%;border:1px solid #d7dfe8;border-radius:8px;padding:12px;font:inherit;resize:vertical;box-sizing:border-box}
 
 .job-alert-section{background:#173650}.job-alert-section .employment-form{background:#fff}.job-alert-section .employment-form-copy ul{padding-left:20px;line-height:1.9;color:#d7e0ea}.verification-fee-panel{margin:0 0 24px;padding:22px;background:#f3f6f8;border:1px solid #d8e0e7;border-radius:14px;color:#172b3d}.verification-fee-panel p,.verification-fee-panel small{display:block;line-height:1.65;color:#526476}.verification-fee-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}.verification-fee-grid div{padding:14px;background:#fff;border:1px solid #dce3e9;border-radius:10px}.verification-fee-grid strong,.verification-fee-grid span{display:block}.verification-fee-grid span{font-size:13px;color:#607080;margin-top:7px;line-height:1.5}@media(max-width:720px){.verification-fee-grid{grid-template-columns:1fr}}
+
+/* Ortakera integrated employment ecosystem */
+.employment-integration{padding-top:88px;padding-bottom:88px}
+.employment-integration .section-top{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:end;margin-bottom:30px}
+.employment-integration .section-top h2{font:800 clamp(32px,4vw,48px)/1.08 Manrope,sans-serif;letter-spacing:-2px;color:#07182e;margin:18px 0}
+.employment-integration .section-top h2 em{font-style:normal;color:#e51b2b}
+.employment-integration .section-top>p{font-size:13px;line-height:1.8;color:#657181}
+.integration-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:#dfe5eb;border:1px solid #dfe5eb}
+.integration-grid article{background:#fff;padding:25px;min-height:190px}
+.integration-grid article>span{font-size:9px;letter-spacing:1.2px;font-weight:800;color:#e51b2b}
+.integration-grid h3{font:800 17px Manrope,sans-serif;color:#07182e;margin:18px 0 9px}
+.integration-grid p{font-size:12px;line-height:1.75;color:#647181;min-height:62px}
+.integration-grid a{font-size:11px;font-weight:800;color:#c91525}
+.integration-boundary{display:grid;grid-template-columns:170px 1fr;gap:18px;padding:19px 22px;margin-top:18px;background:#f2f5f7;border-left:3px solid #e51b2b}
+.integration-boundary b{font-size:12px;color:#07182e}
+.integration-boundary span{font-size:12px;line-height:1.7;color:#586777}
+@media(max-width:760px){.employment-integration{padding-top:65px;padding-bottom:65px}.employment-integration .section-top{grid-template-columns:1fr;gap:12px}.integration-grid{grid-template-columns:1fr 1fr}.integration-grid article{padding:19px;min-height:0}.integration-grid p{min-height:0}.integration-boundary{grid-template-columns:1fr;gap:8px}}
+@media(max-width:440px){.integration-grid{grid-template-columns:1fr}}
