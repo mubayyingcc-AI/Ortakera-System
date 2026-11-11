@@ -18,7 +18,7 @@ test('member API supports free, agent and partner registration without self-assi
  assert.ok(server.includes("['member','agent','partner']"));
  assert.ok(server.includes("type==='member'?'active':'pending_review'"));
  assert.ok(server.includes("plan TEXT NOT NULL DEFAULT 'free'"));
- assert.ok(server.includes("account.plan==='subscribed'"));
+ assert.ok(server.includes("a.plan==='subscribed'"));
  assert.ok(server.includes("Subscription access is activated only after payment verification"));
 });
 
