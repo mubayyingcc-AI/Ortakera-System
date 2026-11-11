@@ -45,7 +45,9 @@ async function loadEmployerWorkspace(account){
   const host=$('employerVacancies');host.replaceChildren();
   if(!vacancies.items.length)host.textContent='No hiring requirements submitted yet.';
   for(const v of vacancies.items){const item=document.createElement('p');item.textContent=[v.reference_code,v.title,v.location,v.status,'Applications: '+v.application_count].join(' · ');host.append(item)}
-  $('employerApplications').textContent=applications.items.length?applications.items.map(x=>[x.title,x.reference_code,x.status,new Date(x.created_at).toLocaleDateString()].join(' · ')).join('\\n'):'No applications have been received for your published vacancies.';
+  const appHost=$('employerApplications');appHost.replaceChildren();
+  if(!applications.items.length)appHost.textContent='No applications have been received for your published vacancies.';
+  for(const item of applications.items){const row=document.createElement('div');row.className='account-status';const summary=document.createElement('p');summary.textContent=[item.title,item.reference_code,item.status,new Date(item.created_at).toLocaleDateString()].join(' · ');row.append(summary);const select=document.createElement('select');for(const status of ['screening','shortlisted','interview','offered','declined']){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=status===item.status;select.append(option)}const button=document.createElement('button');button.type='button';button.textContent='Update application';button.addEventListener('click',async()=>{button.disabled=true;try{await api('/api/v1/employer/applications/'+encodeURIComponent(item.id),{method:'PATCH',body:JSON.stringify({status:select.value})});await loadEmployerWorkspace(account)}catch(error){$('employerMessage').textContent=error.message;button.disabled=false}});row.append(select,button);appHost.append(row)}
  }catch(e){$('employerMessage').textContent=e.message}
 }
 $('employerForm')?.addEventListener('submit',async e=>{
