@@ -153,6 +153,29 @@ async function migrate() {
       UNIQUE(vacancy_id,candidate_enquiry_id)
     );
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS member_accounts (
+      id UUID PRIMARY KEY, email TEXT NOT NULL UNIQUE, full_name TEXT NOT NULL,
+      password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+      account_type TEXT NOT NULL CHECK(account_type IN ('member','agent','partner')),
+      plan TEXT NOT NULL DEFAULT 'free' CHECK(plan IN ('free','subscribed')),
+      account_status TEXT NOT NULL DEFAULT 'active' CHECK(account_status IN ('active','pending_review','suspended','closed')),
+      organization TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS member_sessions (
+      id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS member_sessions_expiry_idx ON member_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS membership_requests (
+      id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      request_type TEXT NOT NULL CHECK(request_type IN ('subscription','agent','partner')),
+      request_status TEXT NOT NULL DEFAULT 'pending' CHECK(request_status IN ('pending','approved','declined','cancelled')),
+      details JSONB NOT NULL DEFAULT '{}'::jsonb, reviewed_by TEXT, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS membership_requests_status_idx ON membership_requests(request_status,created_at DESC);
+  `);
+
 }
 
 function json(res, status, payload) {
@@ -268,6 +291,50 @@ async function handleAdminLogin(req,res) {
   setSessionCookie(res,createSession(adminEmail));
   return json(res,200,{ok:true,email:adminEmail,expiresIn:SESSION_TTL_SECONDS});
 }
+
+const MEMBER_COOKIE='ortakera_member';
+const MEMBER_TTL=2592000;
+async function memberPassword(password,saltHex){const salt=saltHex?Buffer.from(saltHex,'hex'):randomBytes(16);return {salt:salt.toString('hex'),hash:(await scrypt(password,salt,64)).toString('hex')};}
+function setMemberCookie(res,token,maxAge=MEMBER_TTL){res.setHeader('set-cookie',`${MEMBER_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/member; Max-Age=${maxAge}`);}
+function memberCookieClear(res){res.setHeader('set-cookie',`${MEMBER_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/member; Max-Age=0`);}
+async function currentMember(req){const token=cookieValue(req,MEMBER_COOKIE);if(!token||!sessionSecret())return null;const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');const q=await pool.query("SELECT a.id,a.email,a.full_name,a.account_type,a.plan,a.account_status,a.organization FROM member_sessions s JOIN member_accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>NOW()",[hash]);return q.rows[0]||null;}
+async function handleMemberApi(req,res,url){
+ if(!pool)return json(res,503,{error:'Member service unavailable.'});
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/register'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',type=b.account_type||'member',org=clean(b.organization,180)||null;
+  if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<12||password.length>200||!['member','agent','partner'].includes(type)||((type==='agent'||type==='partner')&&!org))return json(res,422,{error:'Enter valid details. Password must contain at least 12 characters; agents and partners must provide an organisation.'});
+  const id=randomUUID(),pw=await memberPassword(password),status=type==='member'?'active':'pending_review';
+  try{await pool.query('INSERT INTO member_accounts(id,email,full_name,password_salt,password_hash,account_type,account_status,organization) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,email,name,pw.salt,pw.hash,type,status,org]);if(type!=='member')await pool.query('INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,$3,$4::jsonb)',[randomUUID(),id,type,JSON.stringify({organization:org})]);return json(res,201,{ok:true,account:{id,email,full_name:name,account_type:type,plan:'free',account_status:status},message:type==='member'?'Free account created. Sign in.':'Application received; access is pending review.'});}catch(e){if(e.code==='23505')return json(res,409,{error:'An account with this email already exists.'});console.error('Member registration:',e.code||e.name);return json(res,500,{error:'Could not create account.'});}
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/login'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,3000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',q=await pool.query('SELECT * FROM member_accounts WHERE email=$1',[email]);
+  if(!q.rowCount)return json(res,401,{error:'Email or password is incorrect.'});
+  const a=q.rows[0],candidate=await memberPassword(password,a.password_salt),x=Buffer.from(candidate.hash,'hex'),y=Buffer.from(a.password_hash,'hex');
+  if(x.length!==y.length||!timingSafeEqual(x,y))return json(res,401,{error:'Email or password is incorrect.'});
+  if(['suspended','closed'].includes(a.account_status))return json(res,403,{error:'Account unavailable.'});
+  const raw=randomBytes(32).toString('base64url'),hash=createHmac('sha256',sessionSecret()).update(raw).digest('hex');
+  await pool.query("INSERT INTO member_sessions(id,account_id,token_hash,expires_at) VALUES($1,$2,$3,NOW()+INTERVAL '30 days')",[randomUUID(),a.id,hash]);await pool.query('UPDATE member_accounts SET last_login_at=NOW() WHERE id=$1',[a.id]);setMemberCookie(res,raw);
+  return json(res,200,{ok:true,account:{id:a.id,email:a.email,full_name:a.full_name,account_type:a.account_type,plan:a.plan,account_status:a.account_status}});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/logout'){if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});const token=cookieValue(req,MEMBER_COOKIE);if(token){const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');await pool.query('DELETE FROM member_sessions WHERE token_hash=$1',[hash]);}memberCookieClear(res);return json(res,200,{ok:true});}
+ const a=await currentMember(req);
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/me'){if(!a)return json(res,401,{error:'Sign in required.'});return json(res,200,{ok:true,account:a});}
+ if(!a)return json(res,401,{error:'Sign in required.'});
+ if(a.account_status!=='active')return json(res,403,{error:'Account is pending review or inactive.'});
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/requests'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});let b;try{b=await readBody(req,2000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  if(b.request_type!=='subscription')return json(res,422,{error:'Unsupported request.'});if(a.plan==='subscribed')return json(res,409,{error:'Already subscribed.'});
+  const p=await pool.query("SELECT id FROM membership_requests WHERE account_id=$1 AND request_type='subscription' AND request_status='pending'",[a.id]);if(p.rowCount)return json(res,409,{error:'A subscription request is already pending.'});
+  const id=randomUUID();await pool.query("INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,'subscription',$3::jsonb)",[id, a.id,JSON.stringify({source:'member_portal'})]);return json(res,201,{ok:true,request_id:id,request_status:'pending',message:'Request received. Subscribed access activates only after payment verification or an approved arrangement.'});
+ }
+ if(req.method==='GET'&&url.pathname==='/api/v1/member/requests'){const q=await pool.query('SELECT id,request_type,request_status,created_at,reviewed_at FROM membership_requests WHERE account_id=$1 ORDER BY created_at DESC',[a.id]);return json(res,200,{items:q.rows});}
+ return json(res,404,{error:'Member endpoint not found.'});
+}
+
 async function handleAdminApi(req,res,url) {
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/login') return handleAdminLogin(req,res);
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/logout') {
@@ -496,6 +563,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 503, { ok:false, api:'v1', database:'unavailable' });
     }
   }
+  if (url.pathname.startsWith('/api/v1/member/')) return handleMemberApi(req,res,url);
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
   const applyMatch=url.pathname.match(/^\/api\/v1\/jobs\/([A-Z0-9-]+)\/apply$/i);
   if(req.method==='POST'&&applyMatch){
