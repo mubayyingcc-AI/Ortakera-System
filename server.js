@@ -369,6 +369,22 @@ async function handleMemberApi(req,res,url){
   if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='employer'||a.account_status!=='active')return json(res,403,{error:'An approved employer account is required.'});
   const q=await pool.query('SELECT ma.id,ma.status,ma.created_at,ma.updated_at,v.reference_code,v.title,v.location,ma.account_id FROM member_job_applications ma JOIN vacancies v ON v.id=ma.vacancy_id WHERE v.employer_account_id=$1 ORDER BY ma.created_at DESC',[a.id]);return json(res,200,{items:q.rows});
  }
+
+ if(req.method==='PATCH'&&url.pathname.match(/^\\/api\\/v1\\/employer\\/applications\\/[0-9a-f-]{36}$/i)){
+  if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='employer'||a.account_status!=='active')return json(res,403,{error:'An approved employer account is required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,1500)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const allowed=['screening','shortlisted','interview','offered','declined'];
+  if(!allowed.includes(b.status))return json(res,422,{error:'Choose a valid application status.'});
+  const client=await pool.connect();
+  try{
+   await client.query('BEGIN');
+   const current=await client.query('SELECT ma.*,v.title,v.reference_code FROM member_job_applications ma JOIN vacancies v ON v.id=ma.vacancy_id WHERE ma.id=$1 AND v.employer_account_id=$2 FOR UPDATE',[url.pathname.split('/').pop(),a.id]);
+   if(!current.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Application not found for this employer.'})}
+   const updated=await client.query('UPDATE member_job_applications SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING id,status,updated_at',[b.status,current.rows[0].id]);
+   await client.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[a.email,'employer.application.status.changed','member_job_application',current.rows[0].id,JSON.stringify({status:current.rows[0].status}),JSON.stringify(updated.rows[0])]);
+   await client.query('COMMIT');return json(res,200,{ok:true,item:updated.rows[0]});
+  }catch(e){await client.query('ROLLBACK');console.error('Employer application update failed:',e.code||e.name);return json(res,500,{error:'Could not update application.'})}finally{client.release()}
+ }
  if(req.method==='GET'&&url.pathname==='/api/v1/member/jobs'){
   if(!a)return json(res,401,{error:'Sign in required.'});
   const q=await pool.query(`SELECT v.reference_code,v.title,v.sector,v.location,v.description,v.gross_pay_range,v.employment_type,v.headcount,v.created_at,(sv.account_id IS NOT NULL) AS saved,(ma.id IS NOT NULL) AS applied FROM vacancies v LEFT JOIN member_saved_vacancies sv ON sv.vacancy_id=v.id AND sv.account_id=$1 LEFT JOIN member_job_applications ma ON ma.vacancy_id=v.id AND ma.account_id=$1 WHERE v.status='published' AND v.employer_verified=TRUE AND v.legal_route_checked=TRUE ORDER BY v.created_at DESC LIMIT 100`,[a.id]);
