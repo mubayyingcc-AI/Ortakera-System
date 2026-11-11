@@ -15,7 +15,8 @@ test('member portal is served and linked from public pages', async () => {
 test('member API supports free, agent and partner registration without self-assigning paid status', async () => {
  const server=await read('server.js');
  for(const route of ['/api/v1/member/register','/api/v1/member/login','/api/v1/member/logout','/api/v1/member/me','/api/v1/member/requests'])assert.ok(server.includes(route));
- assert.ok(server.includes("['member','agent','partner']"));
+ assert.ok(server.includes("account_type IN ('member','agent','partner','employer')"));
+ assert.ok(server.includes("['member','agent','partner','employer'].includes(type)"));
  assert.ok(server.includes("type==='member'?'active':'pending_review'"));
  assert.ok(server.includes("plan TEXT NOT NULL DEFAULT 'free'"));
  assert.ok(server.includes("a.plan==='subscribed'"));
