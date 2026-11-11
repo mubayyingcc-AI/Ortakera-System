@@ -61,3 +61,11 @@ test('member workspace lists only verified published vacancies and tracks saved 
  assert.ok(html.includes('id="memberJobs"')&&html.includes('id="memberApplications"'));
  assert.ok(client.includes("api('/api/v1/member/jobs')")&&client.includes("api('/api/v1/member/applications')"));
 });
+
+test('membership approval requires auditable evidence before activating privileges', async () => {
+ const [server,admin]=await Promise.all([read('server.js'),read('public/admin.js')]);
+ assert.ok(server.includes("if(body.request_status==='approved'&&(!evidenceReference||verificationNote.length<10))"));
+ assert.ok(server.includes("evidence_reference:evidenceReference,verification_note:verificationNote"));
+ assert.ok(admin.includes('evidence_reference:reference?.value||'));
+ assert.ok(admin.includes('verification_note:verification?.value||'));
+});
