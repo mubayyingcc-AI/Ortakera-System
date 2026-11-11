@@ -1,0 +1,14 @@
+const $=id=>document.getElementById(id),message=$('message');
+async function api(path,options={}){const r=await fetch(path,{credentials:'same-origin',...options,headers:{accept:'application/json',...(options.body?{'content-type':'application/json'}:{}),...(options.headers||{})}});const d=await r.json().catch(()=>({error:'Unexpected server response'}));if(!r.ok)throw Error(d.error||'Request failed');return d}
+function note(text){message.textContent=text}
+function formData(form){return Object.fromEntries(new FormData(form).entries())}
+function show(account){$('signedOut').classList.add('hidden');$('signedIn').classList.remove('hidden');$('welcome').textContent='Welcome, '+account.full_name;$('accountDetails').textContent='Email: '+account.email+'\nAccount type: '+account.account_type+'\nMembership: '+account.plan+'\nStatus: '+account.account_status+(account.organization?'\nOrganisation: '+account.organization:'');$('requestSubscription').disabled=account.plan==='subscribed'||account.account_status!=='active';loadRequests()}
+async function loadMe(){try{const d=await api('/api/v1/member/me');show(d.account)}catch{$('signedOut').classList.remove('hidden');$('signedIn').classList.add('hidden')}}
+async function submit(form,path){const button=form.querySelector('button');button.disabled=true;try{const d=await api(path,{method:'POST',body:JSON.stringify(formData(form))});if(path.endsWith('/login')){show(d.account);note('Signed in successfully.')}else{form.reset();note(d.message||'Request received.')} }catch(e){note(e.message)}finally{button.disabled=false}}
+$('loginForm').addEventListener('submit',e=>{e.preventDefault();submit(e.currentTarget,'/api/v1/member/login')});
+$('registerForm').addEventListener('submit',e=>{e.preventDefault();submit(e.currentTarget,'/api/v1/member/register')});
+$('partnerForm').addEventListener('submit',e=>{e.preventDefault();submit(e.currentTarget,'/api/v1/member/register')});
+async function loadRequests(){try{const d=await api('/api/v1/member/requests');$('requests').textContent=d.items.length?d.items.map(x=>x.request_type+': '+x.request_status+' · '+new Date(x.created_at).toLocaleDateString()).join('\n'):'No requests yet.'}catch(e){$('requests').textContent=e.message}}
+$('requestSubscription').addEventListener('click',async()=>{try{const d=await api('/api/v1/member/requests',{method:'POST',body:JSON.stringify({request_type:'subscription'})});$('requestStatus').textContent=d.message;loadRequests()}catch(e){$('requestStatus').textContent=e.message}});
+$('logout').addEventListener('click',async()=>{try{await api('/api/v1/member/logout',{method:'POST',body:'{}'});location.reload()}catch(e){note(e.message)}});
+loadMe();
