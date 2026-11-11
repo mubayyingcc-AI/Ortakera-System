@@ -120,3 +120,13 @@
  .employment-standard-grid{grid-template-columns:minmax(0,1fr)}
  .employment-trustline{align-items:flex-start;gap:8px}
 }
+
+
+@media(max-width:760px){
+ .employment-header{position:relative}
+ .employment-menu-toggle{display:inline-flex}
+ .header .mobile-menu{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border:1px solid #dce2e9;border-radius:4px;background:#fff;cursor:pointer}
+ .employment-nav.is-open{display:flex;position:absolute;top:100%;left:0;right:0;z-index:30;flex-direction:column;align-items:stretch;gap:0;margin:0;padding:8px 22px 16px;background:#fff;border-top:1px solid #e5e9ee;border-bottom:1px solid #e5e9ee;box-shadow:0 14px 28px #07182e18}
+ .employment-nav.is-open a{padding:12px 4px;border-bottom:1px solid #edf0f3;font-size:13px}
+ .employment-nav.is-open a:last-child{border-bottom:0}
+}
