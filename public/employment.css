@@ -316,3 +316,117 @@
   .employment-form select,
   .employment-form textarea { font-size:14px; }
 }
+
+
+/* Final consent, submit and feedback containment.
+   These are the last controls in each form and must never inherit
+   a two-column layout or overflow their white form surface. */
+.employment-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: row;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: stretch;
+  justify-items: stretch;
+  overflow: hidden;
+}
+
+.employment-form > .consent-row,
+.employment-form > .form-submit,
+.employment-form > button[type="submit"],
+.employment-form > .form-foot,
+.employment-form > [aria-live="polite"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+  margin-inline: 0;
+}
+
+.employment-form > .consent-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 0;
+  white-space: normal;
+  text-align: left;
+  overflow: hidden;
+}
+
+.employment-form > .consent-row > input[type="checkbox"] {
+  grid-column: 1;
+  grid-row: 1;
+  float: none;
+  position: static;
+  align-self: start;
+  justify-self: start;
+  margin: 2px 0 0;
+}
+
+.employment-form > .consent-row > span {
+  grid-column: 2;
+  grid-row: 1;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.65;
+  text-align: left;
+}
+
+.employment-form > .consent-row a {
+  display: inline;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.employment-form > .form-submit,
+.employment-form > button[type="submit"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: center;
+}
+
+.employment-form > .form-foot,
+.employment-form > p[aria-live="polite"] {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: left;
+  line-height: 1.6;
+  padding: 0;
+}
+
+.employment-form > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 600px) {
+  .employment-form {
+    padding: 20px 14px;
+    gap: 15px;
+  }
+  .employment-form > .consent-row {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 9px;
+  }
+  .employment-form > .consent-row > span {
+    font-size: 11px;
+    line-height: 1.6;
+  }
+}
