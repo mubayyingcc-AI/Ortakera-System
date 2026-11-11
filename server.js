@@ -549,8 +549,7 @@ async function handleAdminApi(req,res,url) {
     if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
     let body;try{body=await readBody(req,2000)}catch(error){return json(res,error.status||400,{error:error.message})}
     if(!['approved','declined'].includes(body.request_status))return json(res,422,{error:'Choose approved or declined.'});
-    const paymentReference=clean(body.payment_reference,120),verificationNote=clean(body.verification_note,1000);
-    if(body.request_status==='approved'&&body.request_type==='subscription'&&(!paymentReference||verificationNote.length<10))return json(res,422,{error:'To approve subscribed access, provide a payment or approved-arrangement reference and a verification note of at least 10 characters.'});
+    const evidenceReference=clean(body.evidence_reference,120),verificationNote=clean(body.verification_note,1000);
     const client=await pool.connect();
     try{
       await client.query('BEGIN');
@@ -558,10 +557,11 @@ async function handleAdminApi(req,res,url) {
       if(!current.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Membership request not found.'})}
       const item=current.rows[0];
       if(item.request_status!=='pending'){await client.query('ROLLBACK');return json(res,409,{error:'This request has already been reviewed.'})}
+      if(body.request_status==='approved'&&(!evidenceReference||verificationNote.length<10)){await client.query('ROLLBACK');return json(res,422,{error:item.request_type==='subscription'?'Provide a payment or approved-arrangement reference and a verification note of at least 10 characters.':'Provide a due-diligence evidence reference and a verification note of at least 10 characters.'})}
       if(item.request_type==='subscription'&&body.request_status==='approved')await client.query("UPDATE member_accounts SET plan='subscribed',updated_at=NOW() WHERE id=$1",[item.account_id]);
       if((item.request_type==='agent'||item.request_type==='partner')&&body.request_status==='approved')await client.query("UPDATE member_accounts SET account_status='active',updated_at=NOW() WHERE id=$1",[item.account_id]);
       if(body.request_status==='declined'&&(item.request_type==='agent'||item.request_type==='partner'))await client.query("UPDATE member_accounts SET account_status='suspended',updated_at=NOW() WHERE id=$1",[item.account_id]);
-      const detailPatch=item.request_type==='subscription'&&body.request_status==='approved'?{payment_reference:paymentReference,verification_note:verificationNote,verified_by:admin.email,verified_at:new Date().toISOString()}:{};
+      const detailPatch=item.request_type==='subscription'&&body.request_status==='approved'?{evidence_reference:evidenceReference,verification_note:verificationNote,verified_by:admin.email,verified_at:new Date().toISOString()}:{};
       const updated=await client.query('UPDATE membership_requests SET request_status=$1,details=details || $2::jsonb,reviewed_by=$3,reviewed_at=NOW() WHERE id=$4 RETURNING *',[body.request_status,JSON.stringify(detailPatch),admin.email,membershipMatch[1]]);
       await client.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'membership_request.reviewed','membership_request',membershipMatch[1],JSON.stringify(item),JSON.stringify(updated.rows[0])]);
       await client.query('COMMIT');return json(res,200,{ok:true,item:updated.rows[0]});
