@@ -27,3 +27,26 @@ test('employment page does not present live vacancies when none are confirmed', 
  assert.ok(html.includes('No live vacancies are currently confirmed.'));
  assert.ok(html.includes('There are no live vacancies listed on this page yet.') || html.includes('No live vacancies are open at the moment.') || html.includes('There are no live vacancies currently confirmed.'));
 });
+
+
+test('employment form final rows and live feedback stay width-constrained', async () => {
+ const [html,css,js]=await Promise.all([read('public/employment.html'),read('public/employment.css'),read('public/employment.js')]);
+ const formIds=['candidateForm','employerForm','agencyForm','jobCheckForm','jobSubscriptionForm'];
+ for (const id of formIds) {
+  const start=html.indexOf('id="'+id+'"');
+  assert.notEqual(start,-1,'missing form '+id);
+  const end=html.indexOf('</form>',start);
+  assert.ok(end>start,'form is not closed: '+id);
+  const markup=html.slice(start,end);
+  assert.match(markup,/class="consent-row"/,'missing consent row: '+id);
+  assert.match(markup,/<button[^>]*type="submit"/,'missing submit button: '+id);
+  assert.match(markup,/<p[^>]*aria-live="polite"/,'missing in-form live feedback: '+id);
+ }
+ assert.match(html,/<div class="toast" id="toast" role="status" aria-live="polite"><\/div>/);
+ assert.match(css,/\.employment-form\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+ assert.match(css,/form\.employment-form\s+label\.consent-row\s*>\s*span\s*\{[^}]*min-width:\s*0\s*!important/s);
+ assert.match(css,/form\.employment-form\s*>\s*p\.form-foot[^}]*overflow-wrap:\s*anywhere\s*!important/s);
+ assert.match(css,/\.toast\s*\{[^}]*max-width:\s*calc\(100vw\s*-\s*32px\)/s);
+ assert.match(css,/\.toast\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+ assert.ok(js.includes("notify(note.textContent)"),'submission feedback should use the bounded toast');
+});
