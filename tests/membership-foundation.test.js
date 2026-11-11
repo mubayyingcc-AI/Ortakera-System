@@ -84,3 +84,11 @@ test('employer accounts require review and can submit account-linked hiring requ
  assert.ok(server.includes("['agent','partner','employer'].includes(item.request_type)"));
  assert.ok(admin.includes('loadMembershipRequests'));
 });
+
+test('employers can review only their own applications with an audit record', async () => {
+ const [server,client]=await Promise.all([read('server.js'),read('public/account.js')]);
+ assert.ok(server.includes("url.pathname.match(/^\\\\/api\\\\/v1\\\\/employer\\\\/applications\\\\/[0-9a-f-]{36}$/i)"));
+ assert.ok(server.includes('v.employer_account_id=$2 FOR UPDATE'));
+ assert.ok(server.includes('employer.application.status.changed'));
+ assert.ok(client.includes("api('/api/v1/employer/applications/'+encodeURIComponent(item.id)"));
+});
