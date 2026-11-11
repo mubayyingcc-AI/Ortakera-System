@@ -10,7 +10,8 @@ test('all public enquiry categories are accepted by the backend', async () => {
     read('public/index.html'), read('public/employment.html'), read('server.js')
   ]);
   const forms = [...home, ...employment].join('');
-  const categories = [...new Set([...forms.matchAll(/data-interest="([^"]+)"/g)].map(match => match[1]))];
+  const categories = [...new Set([...forms.matchAll(/data-interest=['\"]([^'\"]+)['\"]/g)].map(match => match[1]))];
+  assert.ok(categories.length >= 5, 'public enquiry forms are discovered');
   const accepted = server.match(/const validInterests = \[([^\]]+)\]/);
   assert.ok(accepted, 'backend validInterests declaration exists');
   const allowed = [...accepted[1].matchAll(/'([^']+)'/g)].map(match => match[1]);
