@@ -12,7 +12,7 @@ before(async () => {
   server = createServer(async (req, res) => {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-      const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\\/+/, '');
+      const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
       const file = resolve(root, relative);
       if (file !== root && !file.startsWith(root + sep)) { res.writeHead(403).end(); return; }
       const body = await readFile(file);
