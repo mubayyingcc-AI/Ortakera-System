@@ -602,3 +602,63 @@ form.employment-form > * > * {
   overflow-wrap: anywhere;
   word-break: normal;
 }
+
+
+/* One structural boundary for the consent + submit + final message.
+   This makes the last form section a single full-width grid item, instead
+   of relying on independent child selectors to stay aligned. */
+form.employment-form > .form-ending {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-auto-flow: row !important;
+  align-items: stretch !important;
+  justify-items: stretch !important;
+  gap: 14px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  position: static !important;
+  float: none !important;
+  overflow: visible !important;
+}
+
+form.employment-form > .form-ending > * {
+  display: block;
+  position: static !important;
+  float: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin-inline: 0 !important;
+  box-sizing: border-box !important;
+}
+
+form.employment-form > .form-ending > label.consent-row {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) !important;
+  align-items: start !important;
+  gap: 10px !important;
+  white-space: normal !important;
+  overflow: visible !important;
+}
+
+form.employment-form > .form-ending > label.consent-row > span,
+form.employment-form > .form-ending > p.form-foot {
+  display: block !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  line-height: 1.65 !important;
+}
+
+form.employment-form > .form-ending > button[type="submit"] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  align-items: center !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
