@@ -24,4 +24,4 @@ jobs:
       - run: npm install
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
-      - run: node --test tests/employment-layout.browser.test.js
+      - run: node --test tests/employment-layout.browser.mjs
