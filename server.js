@@ -370,7 +370,7 @@ async function handleMemberApi(req,res,url){
   const q=await pool.query('SELECT ma.id,ma.status,ma.created_at,ma.updated_at,v.reference_code,v.title,v.location,ma.account_id FROM member_job_applications ma JOIN vacancies v ON v.id=ma.vacancy_id WHERE v.employer_account_id=$1 ORDER BY ma.created_at DESC',[a.id]);return json(res,200,{items:q.rows});
  }
 
- if(req.method==='PATCH'&&url.pathname.match(/^\\/api\\/v1\\/employer\\/applications\\/[0-9a-f-]{36}$/i)){
+  if(req.method==='PATCH'&&url.pathname.match(/^\/api\/v1\/employer\/applications\/[0-9a-f-]{36}$/i)){
   if(!a)return json(res,401,{error:'Sign in required.'});if(a.account_type!=='employer'||a.account_status!=='active')return json(res,403,{error:'An approved employer account is required.'});if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
   let b;try{b=await readBody(req,1500)}catch(e){return json(res,e.status||400,{error:e.message})}
   const allowed=['screening','shortlisted','interview','offered','declined'];

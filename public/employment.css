@@ -565,3 +565,40 @@ form.employment-form > * > * {
     line-height: 1.6 !important;
   }
 }
+
+
+/* Keep live submission feedback inside the viewport and readable.
+   The shared toast is position:fixed; long success/error messages must
+   wrap within the viewport rather than extending beyond the form/page. */
+.toast {
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: left;
+  line-height: 1.55;
+  padding: 13px 16px;
+}
+.employment-form .form-foot,
+.employment-form p[aria-live="polite"] {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-align: left;
+}
+.employment-form .form-submit,
+.employment-form button[type="submit"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
