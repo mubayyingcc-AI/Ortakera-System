@@ -182,6 +182,66 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   });
   assert.equal(adminLogin.status, 200);
   assert.ok(adminLogin.cookie.startsWith('ortakera_admin='));
+  const membership = await request('/api/v1/admin/membership-requests', { cookie: adminLogin.cookie });
+  assert.equal(membership.status, 200);
+  const employerRequest = membership.data.items.find(item => item.email === partnerEmail && item.request_type === 'employer');
+  assert.ok(employerRequest, 'employer application must be visible to staff');
+  const approvedEmployer = await request('/api/v1/admin/membership-requests/' + employerRequest.id, {
+    method: 'PATCH', cookie: adminLogin.cookie,
+    body: { request_status: 'approved', evidence_reference: 'E2E-DUE-DILIGENCE-001', verification_note: 'Test-only evidence review; not a real approval.' }
+  });
+  assert.equal(approvedEmployer.status, 200);
+  const approvedEmployerMe = await request('/api/v1/member/me', { cookie: partnerLogin.cookie });
+  assert.equal(approvedEmployerMe.status, 200);
+  assert.equal(approvedEmployerMe.data.account.account_status, 'active');
+
+  const employerVacancy = await request('/api/v1/employer/vacancies', { method: 'POST', cookie: partnerLogin.cookie, body: {
+    title: 'Guest Services Associate', sector: 'Hospitality', location: 'Istanbul',
+    description: 'A test-only role with duties, working hours, contract type and compensation details for the integration workflow.',
+    gross_pay_range: 'Test only', headcount: 1, employment_type: 'Full-time', work_authorisation: 'not_assessed'
+  } });
+  assert.equal(employerVacancy.status, 201);
+  assert.equal(employerVacancy.data.item.status, 'under_review');
+
+  const prePublicationJobs = await request('/api/v1/member/jobs', { cookie: memberCookie });
+  assert.equal(prePublicationJobs.status, 200);
+  assert.equal(prePublicationJobs.data.items.length, 0, 'unverified employer vacancy must remain private');
+
+  const adminVacancies = await request('/api/v1/admin/vacancies', { cookie: adminLogin.cookie });
+  assert.equal(adminVacancies.status, 200);
+  const createdVacancy = adminVacancies.data.items.find(item => item.reference_code === employerVacancy.data.item.reference_code);
+  assert.ok(createdVacancy);
+  const published = await request('/api/v1/admin/vacancies/' + createdVacancy.id, {
+    method: 'PATCH', cookie: adminLogin.cookie,
+    body: { status: 'published', employer_verified: true, legal_route_checked: true }
+  });
+  assert.equal(published.status, 200);
+
+  const publishedJobs = await request('/api/v1/member/jobs', { cookie: memberCookie });
+  assert.equal(publishedJobs.status, 200);
+  assert.ok(publishedJobs.data.items.some(item => item.reference_code === createdVacancy.reference_code));
+  const saved = await request('/api/v1/member/saved-jobs', {
+    method: 'POST', cookie: memberCookie, body: { reference_code: createdVacancy.reference_code }
+  });
+  assert.equal(saved.status, 200);
+  const application = await request('/api/v1/member/applications', {
+    method: 'POST', cookie: memberCookie, body: { reference_code: createdVacancy.reference_code }
+  });
+  assert.equal(application.status, 201);
+  const memberApplications = await request('/api/v1/member/applications', { cookie: memberCookie });
+  assert.ok(memberApplications.data.items.some(item => item.id === application.data.application.id));
+
+  const employerApplications = await request('/api/v1/employer/applications', { cookie: partnerLogin.cookie });
+  assert.equal(employerApplications.status, 200);
+  const ownApplication = employerApplications.data.items.find(item => item.id === application.data.application.id);
+  assert.ok(ownApplication, 'employer must see the application for its own vacancy');
+  const statusUpdate = await request('/api/v1/employer/applications/' + ownApplication.id, {
+    method: 'PATCH', cookie: partnerLogin.cookie, body: { status: 'shortlisted' }
+  });
+  assert.equal(statusUpdate.status, 200);
+  const updatedApplications = await request('/api/v1/member/applications', { cookie: memberCookie });
+  assert.equal(updatedApplications.data.items.find(item => item.id === ownApplication.id).status, 'shortlisted');
+
   const enquiries = await request('/api/v1/admin/enquiries', { cookie: adminLogin.cookie });
   assert.equal(enquiries.status, 200);
   assert.ok(enquiries.data.items.some(item => item.reference_code === candidate.data.reference));
