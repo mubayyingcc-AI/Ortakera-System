@@ -70,7 +70,7 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
     if (server && server.exitCode === null) server.kill('SIGKILL');
   });
 
-  await waitForHealth(server);
+  await waitForHealth(server);\n  const migrationDeadline = Date.now() + 30000;\n  while (!logs.includes('Database schema ready') && Date.now() < migrationDeadline) await new Promise(resolve => setTimeout(resolve, 100));\n  assert.ok(logs.includes('Database schema ready'), 'database migrations must complete');
   const health = await request('/api/v1/health');
   assert.equal(health.status, 200);
   assert.equal(health.data.database, 'connected');
