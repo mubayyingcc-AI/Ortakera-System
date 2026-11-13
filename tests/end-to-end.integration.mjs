@@ -131,6 +131,15 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   const me = await request('/api/v1/member/me', { cookie: memberCookie });
   assert.equal(me.status, 200);
   assert.equal(me.data.account.email, memberEmail);
+  const secondSession = await request('/api/v1/member/login', { method: 'POST', body: { email: memberEmail, password: 'Test-only-member-password-2026!' } });
+  assert.equal(secondSession.status, 200);
+  const revokeAll = await request('/api/v1/member/logout-all', { method: 'POST', cookie: memberCookie });
+  assert.equal(revokeAll.status, 200);
+  assert.equal((await request('/api/v1/member/me', { cookie: memberCookie })).status, 401);
+  assert.equal((await request('/api/v1/member/me', { cookie: secondSession.cookie })).status, 401);
+  const afterRevocation = await request('/api/v1/member/login', { method: 'POST', body: { email: memberEmail, password: 'Test-only-member-password-2026!' } });
+  assert.equal(afterRevocation.status, 200);
+  memberCookie = afterRevocation.cookie;
 
   const profile = await request('/api/v1/member/profile', {
     method: 'PATCH',
