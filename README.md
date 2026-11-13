@@ -1,4 +1,8 @@
-# Ortakera Opportunity Network — preview branch
+# Ortakera Opportunity Network
+
+<p align="center"><img src="public/images/ortakera-logo.webp" alt="Ortakera — Connect, Train, Work, Thrive. Your Opportunity in Türkiye" width="520"></p>
+
+<p align="center"><strong>Connect · Train · Work · Thrive — Your Opportunity in Türkiye</strong></p>
 
 A Türkiye-first opportunity network preview connecting employment pathways and future work-to-stay/local-service journeys.
 
