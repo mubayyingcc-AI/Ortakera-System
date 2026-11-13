@@ -2,7 +2,7 @@ const $=id=>document.getElementById(id),message=$('message');
 async function api(path,options={}){const r=await fetch(path,{credentials:'same-origin',...options,headers:{accept:'application/json',...(options.body?{'content-type':'application/json'}:{}),...(options.headers||{})}});const d=await r.json().catch(()=>({error:'Unexpected server response'}));if(!r.ok)throw Error(d.error||'Request failed');return d}
 function note(text){message.textContent=text}
 function formData(form){return Object.fromEntries(new FormData(form).entries())}
-function show(account){loadProfile();loadMemberJobs();loadMemberApplications();loadEmployerWorkspace(account);$('signedOut').classList.add('hidden');$('signedIn').classList.remove('hidden');$('welcome').textContent='Welcome, '+account.full_name;$('accountDetails').textContent='Email: '+account.email+'\nAccount type: '+account.account_type+'\nMembership: '+account.plan+'\nStatus: '+account.account_status+(account.organization?'\nOrganisation: '+account.organization:'');$('requestSubscription').disabled=account.plan==='subscribed'||account.account_status!=='active';loadRequests()}
+function show(account){$('emailVerificationStatus').textContent=account.email_verified?'Your email address is verified.':'Your email address is not yet verified. Check your inbox or request another link.';$('resendVerification').classList.toggle('hidden',Boolean(account.email_verified));loadProfile();loadMemberJobs();loadMemberApplications();loadEmployerWorkspace(account);$('signedOut').classList.add('hidden');$('signedIn').classList.remove('hidden');$('welcome').textContent='Welcome, '+account.full_name;$('accountDetails').textContent='Email: '+account.email+'\nAccount type: '+account.account_type+'\nMembership: '+account.plan+'\nStatus: '+account.account_status+(account.organization?'\nOrganisation: '+account.organization:'');$('requestSubscription').disabled=account.plan==='subscribed'||account.account_status!=='active';loadRequests()}
 async function loadMe(){try{const d=await api('/api/v1/member/me');show(d.account)}catch{$('signedOut').classList.remove('hidden');$('signedIn').classList.add('hidden')}}
 async function submit(form,path){const button=form.querySelector('button');button.disabled=true;try{const d=await api(path,{method:'POST',body:JSON.stringify(formData(form))});if(path.endsWith('/login')){show(d.account);note('Signed in successfully.')}else{form.reset();note(d.message||'Request received.')} }catch(e){note(e.message)}finally{button.disabled=false}}
 $('loginForm').addEventListener('submit',e=>{e.preventDefault();submit(e.currentTarget,'/api/v1/member/login')});
@@ -56,3 +56,32 @@ $('employerForm')?.addEventListener('submit',async e=>{
  catch(err){$('employerMessage').textContent=err.message}
  finally{button.disabled=false}
 });
+
+$('resetRequestForm')?.addEventListener('submit',async e=>{
+ e.preventDefault();const form=e.currentTarget,button=form.querySelector('button');button.disabled=true;$('resetRequestMessage').textContent='Sending request…';
+ try{const d=await api('/api/v1/member/password-reset/request',{method:'POST',body:JSON.stringify(formData(form))});$('resetRequestMessage').textContent=d.message;form.reset()}
+ catch(error){$('resetRequestMessage').textContent=error.message}
+ finally{button.disabled=false}
+});
+$('resetCompleteForm')?.addEventListener('submit',async e=>{
+ e.preventDefault();const form=e.currentTarget,button=form.querySelector('button'),token=new URLSearchParams(location.search).get('reset');button.disabled=true;$('resetCompleteMessage').textContent='Updating password…';
+ try{const d=await api('/api/v1/member/password-reset/complete',{method:'POST',body:JSON.stringify({token,password:formData(form).password})});$('resetCompleteMessage').textContent=d.message;form.reset();history.replaceState({},'',location.pathname);$('resetCompleteCard').classList.add('hidden')}
+ catch(error){$('resetCompleteMessage').textContent=error.message}
+ finally{button.disabled=false}
+});
+$('resendVerification')?.addEventListener('click',async e=>{
+ const button=e.currentTarget;button.disabled=true;
+ try{const d=await api('/api/v1/member/verify-email/resend',{method:'POST',body:'{}'});$('emailVerificationStatus').textContent=d.message}
+ catch(error){$('emailVerificationStatus').textContent=error.message}
+ finally{button.disabled=false}
+});
+async function handleAccountActionLink(){
+ const params=new URLSearchParams(location.search),verifyToken=params.get('verify'),resetToken=params.get('reset');
+ if(resetToken){$('resetCompleteCard')?.classList.remove('hidden');$('resetCompleteMessage').textContent='Enter a new password to complete the reset.'}
+ if(verifyToken){
+  $('verifyCard')?.classList.remove('hidden');$('verifyMessage').textContent='Verifying your email address…';
+  try{const d=await api('/api/v1/member/verify-email/confirm',{method:'POST',body:JSON.stringify({token:verifyToken})});$('verifyMessage').textContent=d.message;history.replaceState({},'',location.pathname);await loadMe()}
+  catch(error){$('verifyMessage').textContent=error.message}
+ }
+}
+handleAccountActionLink();

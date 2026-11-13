@@ -92,3 +92,18 @@ test('employers can review only their own applications with an audit record', as
  assert.ok(server.includes('employer.application.status.changed'));
  assert.ok(client.includes("api('/api/v1/employer/applications/'+encodeURIComponent(item.id)"));
 });
+
+
+test('member email verification and password recovery use hashed single-use tokens and configured delivery', async () => {
+ const [server,html,client]=await Promise.all([read('server.js'),read('public/account.html'),read('public/account.js')]);
+ assert.ok(server.includes('email_verified_at TIMESTAMPTZ'));
+ assert.ok(server.includes('CREATE TABLE IF NOT EXISTS member_action_tokens'));
+ assert.ok(server.includes("purpose IN ('verify_email','password_reset')"));
+ assert.ok(server.includes("createHmac('sha256',sessionSecret()).update(token).digest('hex')"));
+ for(const route of ['/api/v1/member/verify-email/resend','/api/v1/member/verify-email/confirm','/api/v1/member/password-reset/request','/api/v1/member/password-reset/complete'])assert.ok(server.includes(route));
+ assert.ok(server.includes('RESEND_API_KEY')&&server.includes('EMAIL_FROM')&&server.includes('APP_BASE_URL'));
+ assert.ok(server.includes("DELETE FROM member_sessions WHERE account_id=$1"));
+ assert.ok(html.includes('id="resetRequestForm"')&&html.includes('id="resetCompleteForm"')&&html.includes('id="resendVerification"'));
+ assert.ok(client.includes('/api/v1/member/password-reset/request')&&client.includes('/api/v1/member/password-reset/complete'));
+ assert.ok(client.includes('/api/v1/member/verify-email/confirm')&&client.includes('/api/v1/member/verify-email/resend'));
+});

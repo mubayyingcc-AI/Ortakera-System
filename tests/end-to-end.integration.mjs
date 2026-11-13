@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { randomBytes, scrypt as scryptCallback } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -14,16 +15,19 @@ const memberEmail = `member-${randomBytes(6).toString('hex')}@ortakera.test`;
 const partnerEmail = `partner-${randomBytes(6).toString('hex')}@ortakera.test`;
 const sessionSecret = randomBytes(48).toString('hex');
 let server;
+let emailServer;
+const capturedEmails = [];
 
 async function passwordHash(password) {
   const salt = randomBytes(16);
   const hash = await scrypt(password, salt, 64);
   return `${salt.toString('hex')}:${hash.toString('hex')}`;
 }
-async function request(path, { method = 'GET', body, cookie, origin = base } = {}) {
+async function request(path, { method = 'GET', body, cookie, origin = base, clientIp } = {}) {
   const headers = { accept: 'application/json' };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (cookie) headers.cookie = cookie;
+  if (clientIp) headers['x-real-ip'] = clientIp;
   if (origin) headers.origin = origin;
   const response = await fetch(base + path, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body)
@@ -48,6 +52,16 @@ async function waitForHealth(child) {
 
 test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator journeys', async t => {
   const adminHash = await passwordHash(adminPassword);
+  emailServer = createServer(async (req, res) => {
+    let raw = '';
+    for await (const chunk of req) raw += chunk.toString();
+    try { capturedEmails.push(JSON.parse(raw)); } catch {}
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'test-email-' + capturedEmails.length }));
+  });
+  emailServer.listen(0, '127.0.0.1');
+  await once(emailServer, 'listening');
+  const emailPort = emailServer.address().port;
   server = spawn(process.execPath, ['server.js'], {
     env: {
       ...process.env,
@@ -55,7 +69,11 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
       SESSION_SECRET: sessionSecret,
       ADMIN_EMAIL: adminEmail,
       ADMIN_PASSWORD_HASH: adminHash,
-      NODE_ENV: 'test'
+      NODE_ENV: 'test',
+      APP_BASE_URL: base,
+      RESEND_API_KEY: 'test-key',
+      EMAIL_FROM: 'Ortakera Test <test@ortakera.test>',
+      EMAIL_API_URL: 'http://127.0.0.1:' + emailPort
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -68,6 +86,7 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
       await Promise.race([once(server, 'exit'), new Promise(resolve => setTimeout(resolve, 5000))]);
     }
     if (server && server.exitCode === null) server.kill('SIGKILL');
+    if (emailServer) await new Promise(resolve => emailServer.close(resolve));
   });
 
   await waitForHealth(server);
@@ -107,6 +126,17 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   assert.equal(registered.status, 201);
   assert.equal(registered.data.account.plan, 'free');
   assert.equal(registered.data.account.account_status, 'active');
+  assert.equal(registered.data.account.email_verified, false);
+  assert.equal(registered.data.email_verification, 'sent');
+  assert.equal(capturedEmails.length, 1, 'registration must send a verification email');
+  const verificationLink = capturedEmails[0].html.match(/href="([^"]+)"/)?.[1];
+  assert.ok(verificationLink, 'verification email must contain a confirmation link');
+  const verificationToken = new URL(verificationLink).searchParams.get('verify');
+  assert.ok(verificationToken);
+  const verified = await request('/api/v1/member/verify-email/confirm', { method: 'POST', body: { token: verificationToken } });
+  assert.equal(verified.status, 200);
+  const replayedVerification = await request('/api/v1/member/verify-email/confirm', { method: 'POST', body: { token: verificationToken } });
+  assert.equal(replayedVerification.status, 400, 'verification links must be single use');
 
   const duplicate = await request('/api/v1/member/register', {
     method: 'POST',
@@ -288,4 +318,22 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   assert.equal(revokedAdminSession.status, 401, 'administrator logout must revoke the server-side session');
   const firstAdminSession = await request('/api/v1/admin/session', { cookie: adminLogin.cookie });
   assert.equal(firstAdminSession.status, 200, 'logging out one administrator session must not revoke another active session');
+
+  const resetRequest = await request('/api/v1/member/password-reset/request', { method: 'POST', clientIp: '198.51.100.44', body: { email: memberEmail } });
+  assert.equal(resetRequest.status, 200);
+  const resetEmail = capturedEmails.find(item => item.subject?.includes('Reset your Ortakera password'));
+  assert.ok(resetEmail, 'password reset request must send a reset email');
+  const resetLink = resetEmail.html.match(/href="([^"]+)"/)?.[1];
+  assert.ok(resetLink);
+  const resetToken = new URL(resetLink).searchParams.get('reset');
+  assert.ok(resetToken);
+  const completedReset = await request('/api/v1/member/password-reset/complete', { method: 'POST', clientIp: '198.51.100.45', body: { token: resetToken, password: 'New-test-member-password-2026!' } });
+  assert.equal(completedReset.status, 200);
+  assert.equal((await request('/api/v1/member/me', { cookie: memberCookie })).status, 401, 'password reset must revoke existing sessions');
+  const oldPasswordLogin = await request('/api/v1/member/login', { method: 'POST', clientIp: '198.51.100.46', body: { email: memberEmail, password: 'Test-only-member-password-2026!' } });
+  assert.equal(oldPasswordLogin.status, 401);
+  const newPasswordLogin = await request('/api/v1/member/login', { method: 'POST', clientIp: '198.51.100.47', body: { email: memberEmail, password: 'New-test-member-password-2026!' } });
+  assert.equal(newPasswordLogin.status, 200);
+  const resetReplay = await request('/api/v1/member/password-reset/complete', { method: 'POST', clientIp: '198.51.100.48', body: { token: resetToken, password: 'Another-test-member-password-2026!' } });
+  assert.equal(resetReplay.status, 400, 'password reset tokens must be single use');
 });
