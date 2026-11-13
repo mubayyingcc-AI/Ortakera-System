@@ -341,9 +341,9 @@ async function currentMember(req){const token=cookieValue(req,MEMBER_COOKIE);if(
 async function handleMemberApi(req,res,url){
  if(!pool)return json(res,503,{error:'Member service unavailable.'});
  if(req.method==='POST'&&url.pathname==='/api/v1/member/register'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
   const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
   if(!rateAllowed('member-register:'+ip))return json(res,429,{error:'Too many registration attempts. Try again later.'});
-  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
   let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
   const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',type=b.account_type||'member',org=clean(b.organization,180)||null;
   if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<12||password.length>200||!['member','agent','partner','employer'].includes(type)||(['agent','partner','employer'].includes(type)&&!org))return json(res,422,{error:'Enter valid details. Password must contain at least 12 characters; agents, partners and employers must provide an organisation.'});
