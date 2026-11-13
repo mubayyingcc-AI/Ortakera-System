@@ -37,7 +37,7 @@ Recommended additional layer: schedule encrypted logical exports (`pg_dump --for
 - **Privacy and data governance:** publish and review the final privacy notice, retention/deletion process, consent text, data-subject request handling, incident response and cross-border transfer arrangements before collecting live sensitive candidate information.
 - **Operational moderation:** define employer/agency verification evidence, vacancy checks, JobProof review SLA, escalation, complaints and fraud response. JobProof is human review and must not be presented as automatic government verification.
 - **Product completeness:** payments/subscriptions, email alerts, accommodation inventory, provider verification, booking, and local experience workflows are not verified live services. Do not advertise them as available.
-- **Public acceptance:** run independent browser checks on the actual production domain (desktop and mobile), including registration, login, employer approval, enquiry submission, vacancy gating, admin logout/revocation and security headers. The CI browser tests are not a substitute for this external acceptance run.
+- **Public acceptance:** the owner confirmed on 2026-11-13 that the public website opens correctly in their browser. This confirms owner-side page accessibility, but does not yet verify every interactive workflow on the live domain. Complete a desktop/mobile smoke run covering registration, login, employer approval, enquiry submission, vacancy gating, admin logout/revocation and security headers. CI browser tests exercise the test environment and are not a substitute for live workflow acceptance.
 
 ## Release rule
 
