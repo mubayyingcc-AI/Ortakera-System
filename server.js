@@ -321,7 +321,7 @@ const MEMBER_COOKIE='ortakera_member';
 const MEMBER_TTL=2592000;
 async function memberPassword(password,saltHex){const salt=saltHex?Buffer.from(saltHex,'hex'):randomBytes(16);return {salt:salt.toString('hex'),hash:(await scrypt(password,salt,64)).toString('hex')};}
 function setMemberCookie(res,token,maxAge=MEMBER_TTL){res.setHeader('set-cookie',`${MEMBER_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/api/v1; Max-Age=${maxAge}`);}
-function memberCookieClear(res){res.setHeader('set-cookie',`${MEMBER_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/member; Max-Age=0`);}
+function memberCookieClear(res){res.setHeader('set-cookie',`${MEMBER_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1; Max-Age=0`);}
 async function currentMember(req){const token=cookieValue(req,MEMBER_COOKIE);if(!token||!sessionSecret())return null;const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');const q=await pool.query("SELECT a.id,a.email,a.full_name,a.account_type,a.plan,a.account_status,a.organization FROM member_sessions s JOIN member_accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>NOW()",[hash]);return q.rows[0]||null;}
 async function handleMemberApi(req,res,url){
  if(!pool)return json(res,503,{error:'Member service unavailable.'});
