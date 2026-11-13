@@ -21,3 +21,27 @@
 .employment-bridge-actions{display:grid;gap:12px;justify-items:stretch}
 .employment-bridge-actions .btn{justify-content:center;text-align:center;padding:17px}
 @media(max-width:760px){.employment-bridge{padding:62px 0}.employment-bridge-inner{grid-template-columns:1fr;gap:28px}}
+
+
+/* Official Ortakera identity: compact header, campaign feature and footer */
+.brand-official{min-width:0;width:126px;height:76px;flex:0 0 126px;display:flex;align-items:center;justify-content:flex-start;overflow:hidden}
+.brand-official img{display:block;width:100%;height:100%;object-fit:contain;object-position:left center}
+.brand-official-footer{width:190px;height:112px;flex-basis:190px}
+.brand-official-footer img{object-position:left center}
+.brand-promotion{background:linear-gradient(105deg,#f6f8fb 0%,#fff 48%,#f2f5f8 100%);border-top:1px solid #e7ebf0;border-bottom:1px solid #e0e6ed;padding:42px 0}
+.brand-promotion-inner{display:grid;grid-template-columns:minmax(210px,290px) 1fr;gap:58px;align-items:center;max-width:1040px}
+.brand-promotion-inner>img{display:block;width:100%;max-width:280px;height:auto;justify-self:center;filter:drop-shadow(0 12px 18px #07182e12)}
+.brand-promotion-copy>span{font-size:9px;font-weight:800;letter-spacing:2.4px;color:var(--red)}
+.brand-promotion-copy h2{font:800 clamp(25px,3.2vw,38px)/1.16 var(--display);letter-spacing:-1.5px;color:var(--navy);margin:10px 0 12px;max-width:680px}
+.brand-promotion-copy p{font-size:12px;line-height:1.8;color:#69798c;max-width:650px;margin:0 0 19px}
+.brand-promotion-copy .btn{font-size:10px}
+@media(max-width:760px){
+ .brand-official{width:91px;height:61px;flex-basis:91px}
+ .brand-official-footer{width:160px;height:100px;flex-basis:160px}
+ .brand-promotion{padding:30px 0}
+ .brand-promotion-inner{grid-template-columns:1fr;gap:13px;text-align:center}
+ .brand-promotion-inner>img{max-width:220px}
+ .brand-promotion-copy>span{font-size:8px}
+ .brand-promotion-copy h2{font-size:27px;letter-spacing:-1px}
+ .brand-promotion-copy p{font-size:11px;margin-left:auto;margin-right:auto}
+}
