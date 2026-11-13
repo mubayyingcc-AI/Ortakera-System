@@ -360,11 +360,20 @@ async function handleMemberApi(req,res,url){
   const a=q.rows[0],candidate=await memberPassword(password,a.password_salt),x=Buffer.from(candidate.hash,'hex'),y=Buffer.from(a.password_hash,'hex');
   if(x.length!==y.length||!timingSafeEqual(x,y))return json(res,401,{error:'Email or password is incorrect.'});
   if(['suspended','closed'].includes(a.account_status))return json(res,403,{error:'Account unavailable.'});
+  await pool.query('DELETE FROM member_sessions WHERE expires_at <= NOW()');
   const raw=randomBytes(32).toString('base64url'),hash=createHmac('sha256',sessionSecret()).update(raw).digest('hex');
   await pool.query("INSERT INTO member_sessions(id,account_id,token_hash,expires_at) VALUES($1,$2,$3,NOW()+INTERVAL '30 days')",[randomUUID(),a.id,hash]);await pool.query('UPDATE member_accounts SET last_login_at=NOW() WHERE id=$1',[a.id]);setMemberCookie(res,raw);
   return json(res,200,{ok:true,account:{id:a.id,email:a.email,full_name:a.full_name,account_type:a.account_type,plan:a.plan,account_status:a.account_status}});
  }
  if(req.method==='POST'&&url.pathname==='/api/v1/member/logout'){if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});const token=cookieValue(req,MEMBER_COOKIE);if(token){const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');await pool.query('DELETE FROM member_sessions WHERE token_hash=$1',[hash]);}memberCookieClear(res);return json(res,200,{ok:true});}
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/logout-all'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  const account=await currentMember(req);
+  if(!account)return json(res,401,{error:'Sign in required.'});
+  await pool.query('DELETE FROM member_sessions WHERE account_id=$1',[account.id]);
+  memberCookieClear(res);
+  return json(res,200,{ok:true,message:'All active sessions have been revoked. Sign in again on this device if needed.'});
+ }
  const a=await currentMember(req);
  if(req.method==='GET'&&url.pathname==='/api/v1/member/me'){if(!a)return json(res,401,{error:'Sign in required.'});return json(res,200,{ok:true,account:a});}
 
