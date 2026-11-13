@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { isIP } from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { randomUUID, createHmac, timingSafeEqual, scrypt as scryptCallback, randomBytes } from 'node:crypto';
@@ -20,10 +21,8 @@ const pool = process.env.DATABASE_URL ? new Pool({
 }) : null;
 
 const mime = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.webp':'image/webp', '.ico':'image/x-icon' };
-const rate = new Map();
-const RATE_WINDOW_MS = 15 * 60 * 1000;
+const RATE_WINDOW_SECONDS = 15 * 60;
 const RATE_LIMIT = 5;
-const RATE_MAP_MAX_ENTRIES = 10000;
 let rateOperations = 0;
 
 async function migrate() {
@@ -179,6 +178,12 @@ async function migrate() {
       expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS admin_sessions_expiry_idx ON admin_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+      bucket_key TEXT PRIMARY KEY,
+      window_started TIMESTAMPTZ NOT NULL,
+      request_count INTEGER NOT NULL CHECK(request_count >= 0)
+    );
+    CREATE INDEX IF NOT EXISTS rate_limit_buckets_window_idx ON rate_limit_buckets(window_started);
     CREATE TABLE IF NOT EXISTS membership_requests (
       id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
       request_type TEXT NOT NULL CHECK(request_type IN ('subscription','agent','partner')),
@@ -232,28 +237,38 @@ function readBody(req, limit = 12000) {
   });
 }
 
+// Railway's public HTTP edge overwrites X-Real-IP with the visitor IP.
+// Do not expose this service to untrusted private-network HTTP callers or a TCP proxy.
+function clientIp(req) {
+  const forwarded = String(req.headers['x-real-ip'] || '').trim();
+  return isIP(forwarded) ? forwarded : (req.socket.remoteAddress || 'unknown');
+}
+
 function clean(value, max) {
   return typeof value === 'string' ? value.trim().replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').slice(0, max) : '';
 }
 
-function rateAllowed(ip) {
-  const now = Date.now();
-  if (++rateOperations % 256 === 0 || rate.size >= RATE_MAP_MAX_ENTRIES) {
-    for (const [key, item] of rate) {
-      if (now - item.start > RATE_WINDOW_MS) rate.delete(key);
-      if (rate.size <= RATE_MAP_MAX_ENTRIES * 0.8) break;
-    }
-    while (rate.size >= RATE_MAP_MAX_ENTRIES) rate.delete(rate.keys().next().value);
+async function rateAllowed(bucketKey) {
+  if (!pool) throw new Error('Database-backed rate limiting requires DATABASE_URL');
+  const result = await pool.query(`
+    INSERT INTO rate_limit_buckets(bucket_key, window_started, request_count)
+    VALUES ($1, NOW(), 1)
+    ON CONFLICT (bucket_key) DO UPDATE SET
+      window_started = CASE
+        WHEN rate_limit_buckets.window_started <= NOW() - ($2 * INTERVAL '1 second') THEN NOW()
+        ELSE rate_limit_buckets.window_started
+      END,
+      request_count = CASE
+        WHEN rate_limit_buckets.window_started <= NOW() - ($2 * INTERVAL '1 second') THEN 1
+        ELSE rate_limit_buckets.request_count + 1
+      END
+    RETURNING request_count
+  `, [bucketKey, RATE_WINDOW_SECONDS]);
+  if (++rateOperations % 512 === 0) {
+    await pool.query("DELETE FROM rate_limit_buckets WHERE window_started <= NOW() - INTERVAL '1 day'");
   }
-  const entry = rate.get(ip);
-  if (!entry || now - entry.start > RATE_WINDOW_MS) {
-    rate.set(ip, { start: now, count: 1 });
-    return true;
-  }
-  entry.count += 1;
-  return entry.count <= RATE_LIMIT;
+  return Number(result.rows[0]?.request_count || 0) <= RATE_LIMIT;
 }
-
 
 function cookieValue(req, name) {
   const header = req.headers.cookie || '';
@@ -318,8 +333,8 @@ async function requireAdmin(req,res) {
   return session;
 }
 async function handleAdminLogin(req,res) {
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
-  if (!rateAllowed('admin:'+ip)) return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
+  const ip = clientIp(req);
+  if (!(await rateAllowed('admin:'+ip))) return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
   if (!sameOrigin(req)) return json(res,403,{error:'Request origin rejected.'});
   const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   const passwordHash = process.env.ADMIN_PASSWORD_HASH || '';
@@ -359,13 +374,13 @@ async function handleMemberApi(req,res,url){
   let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
   const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',type=b.account_type||'member',org=clean(b.organization,180)||null;
   if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<12||password.length>200||!['member','agent','partner','employer'].includes(type)||(['agent','partner','employer'].includes(type)&&!org))return json(res,422,{error:'Enter valid details. Password must contain at least 12 characters; agents, partners and employers must provide an organisation.'});
-  const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
-  if(!rateAllowed('member-register:'+ip))return json(res,429,{error:'Too many registration attempts. Try again later.'});
+  const ip = clientIp(req);
+  if(!(await rateAllowed('member-register:'+ip)))return json(res,429,{error:'Too many registration attempts. Try again later.'});
   const id=randomUUID(),pw=await memberPassword(password),status=type==='member'?'active':'pending_review';
   const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO member_accounts(id,email,full_name,password_salt,password_hash,account_type,account_status,organization) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,email,name,pw.salt,pw.hash,type,status,org]);if(type!=='member')await client.query('INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,$3,$4::jsonb)',[randomUUID(),id,type,JSON.stringify({organization:org})]);await client.query('COMMIT');return json(res,201,{ok:true,account:{id,email,full_name:name,account_type:type,plan:'free',account_status:status},message:type==='member'?'Free account created. Sign in.':'Application received; access is pending review.'});}catch(e){await client.query('ROLLBACK');if(e.code==='23505')return json(res,409,{error:'An account with this email already exists.'});console.error('Member registration:',e.code||e.name);return json(res,500,{error:'Could not create account.'});}finally{client.release()}
  }
  if(req.method==='POST'&&url.pathname==='/api/v1/member/login'){
-  const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();if(!rateAllowed('member-login:'+ip))return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
+  const ip = clientIp(req);if(!(await rateAllowed('member-login:'+ip)))return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
   if(!sessionSecret())return json(res,503,{error:'Member sessions are not configured.'});
   if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
   let b;try{b=await readBody(req,3000)}catch(e){return json(res,e.status||400,{error:e.message})}
@@ -653,8 +668,8 @@ async function handleAdminApi(req,res,url) {
 }
 
 async function handleEnquiry(req, res) {
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
-  if (!rateAllowed(ip)) return json(res, 429, { error:'Too many enquiries from this connection. Please try again later.' });
+  const ip = clientIp(req);
+  if (!(await rateAllowed('enquiry:'+ip))) return json(res, 429, { error:'Too many enquiries from this connection. Please try again later.' });
   if (!pool) return json(res, 503, { error:'Enquiry service is not configured yet. Please try again later.' });
 
   let body;
@@ -751,8 +766,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
   const applyMatch=url.pathname.match(/^\/api\/v1\/jobs\/([A-Z0-9-]+)\/apply$/i);
   if(req.method==='POST'&&applyMatch){
-    const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
-    if(!rateAllowed('apply:'+ip))return json(res,429,{error:'Too many applications from this connection. Try again later.'});
+    const ip = clientIp(req);
+    if(!(await rateAllowed('apply:'+ip)))return json(res,429,{error:'Too many applications from this connection. Try again later.'});
     let body;try{body=await readBody(req,2000)}catch(error){return json(res,error.status||400,{error:error.message})}
     const email=clean(body.email,254).toLowerCase(),candidateRef=clean(body.candidate_reference,40).toUpperCase();
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!candidateRef)return json(res,422,{error:'Enter the email and candidate reference from your registration.'});
