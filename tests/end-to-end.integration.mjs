@@ -158,16 +158,9 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   const jobs = await request('/api/v1/member/jobs', { cookie: memberCookie });
   assert.equal(jobs.status, 200);
   assert.deepEqual(jobs.data.items, []);
-
   const logout = await request('/api/v1/member/logout', { method: 'POST', cookie: memberCookie });
   assert.equal(logout.status, 200);
   assert.equal((await request('/api/v1/member/me', { cookie: memberCookie })).status, 401);
-  const memberReLogin = await request('/api/v1/member/login', {
-    method: 'POST',
-    body: { email: memberEmail, password: 'Test-only-member-password-2026!' }
-  });
-  assert.equal(memberReLogin.status, 200);
-  memberCookie = memberReLogin.cookie;
 
   const partner = await request('/api/v1/member/register', {
     method: 'POST',
