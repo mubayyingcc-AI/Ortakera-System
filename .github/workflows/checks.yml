@@ -6,7 +6,7 @@ on:
     branches: [main]
 jobs:
   syntax-and-unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,7 +15,7 @@ jobs:
       - run: npm install
       - run: npm run check
   employment-browser-layout:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,7 +26,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node --test tests/employment-layout.browser.mjs
   postgres-end-to-end:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
