@@ -70,7 +70,10 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
     if (server && server.exitCode === null) server.kill('SIGKILL');
   });
 
-  await waitForHealth(server);\n  const migrationDeadline = Date.now() + 30000;\n  while (!logs.includes('Database schema ready') && Date.now() < migrationDeadline) await new Promise(resolve => setTimeout(resolve, 100));\n  assert.ok(logs.includes('Database schema ready'), 'database migrations must complete');
+  await waitForHealth(server);
+  const migrationDeadline = Date.now() + 30000;
+  while (!logs.includes('Database schema ready') && Date.now() < migrationDeadline) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.ok(logs.includes('Database schema ready'), 'database migrations must complete');
   const health = await request('/api/v1/health');
   assert.equal(health.status, 200);
   assert.equal(health.data.database, 'connected');
@@ -170,7 +173,7 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
     consent: true, fields: { location: 'Lagos, Nigeria', sector: 'Hospitality', role: 'Guest Services', experience: 'Mid-level', languages: 'English', eligibility: 'Needs employer sponsorship' }
   } });
   assert.equal(candidate.status, 201);
-  assert.match(candidate.data.reference, /^ORT-\\d{4}-[A-F0-9]{8}$/);
+  assert.match(candidate.data.reference, /^ORT-\d{4}-[A-F0-9]{8}$/);
 
   const unauthorisedAdmin = await request('/api/v1/admin/enquiries');
   assert.equal(unauthorisedAdmin.status, 401);
@@ -189,5 +192,4 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   const audit = await request('/api/v1/admin/audit', { cookie: adminLogin.cookie });
   assert.equal(audit.status, 200);
   assert.ok(Array.isArray(audit.data.items));
-  assert.ok(logs.includes('Database schema ready'), 'database migrations must finish before tests');
 });
