@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { randomBytes, scrypt as scryptCallback } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -14,16 +15,19 @@ const memberEmail = `member-${randomBytes(6).toString('hex')}@ortakera.test`;
 const partnerEmail = `partner-${randomBytes(6).toString('hex')}@ortakera.test`;
 const sessionSecret = randomBytes(48).toString('hex');
 let server;
+let emailServer;
+const capturedEmails = [];
 
 async function passwordHash(password) {
   const salt = randomBytes(16);
   const hash = await scrypt(password, salt, 64);
   return `${salt.toString('hex')}:${hash.toString('hex')}`;
 }
-async function request(path, { method = 'GET', body, cookie, origin = base } = {}) {
+async function request(path, { method = 'GET', body, cookie, origin = base, clientIp } = {}) {
   const headers = { accept: 'application/json' };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (cookie) headers.cookie = cookie;
+  if (clientIp) headers['x-real-ip'] = clientIp;
   if (origin) headers.origin = origin;
   const response = await fetch(base + path, {
     method, headers, body: body === undefined ? undefined : JSON.stringify(body)
