@@ -23,6 +23,8 @@ const mime = { '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf
 const rate = new Map();
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT = 5;
+const RATE_MAP_MAX_ENTRIES = 10000;
+let rateOperations = 0;
 
 async function migrate() {
   if (!pool) throw new Error('DATABASE_URL is not configured');
@@ -231,6 +233,13 @@ function clean(value, max) {
 
 function rateAllowed(ip) {
   const now = Date.now();
+  if (++rateOperations % 256 === 0 || rate.size >= RATE_MAP_MAX_ENTRIES) {
+    for (const [key, item] of rate) {
+      if (now - item.start > RATE_WINDOW_MS) rate.delete(key);
+      if (rate.size <= RATE_MAP_MAX_ENTRIES * 0.8) break;
+    }
+    while (rate.size >= RATE_MAP_MAX_ENTRIES) rate.delete(rate.keys().next().value);
+  }
   const entry = rate.get(ip);
   if (!entry || now - entry.start > RATE_WINDOW_MS) {
     rate.set(ip, { start: now, count: 1 });
@@ -285,8 +294,14 @@ function clearSessionCookie(res) {
 }
 function sameOrigin(req) {
   const origin = req.headers.origin;
-  if (!origin) return true;
-  try { return new URL(origin).host === req.headers.host; } catch { return false; }
+  const host = req.headers.host;
+  if (!origin || !host) return false;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.host !== host) return false;
+    if (process.env.NODE_ENV === 'production') return parsed.protocol === 'https:';
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch { return false; }
 }
 async function requireAdmin(req,res) {
   const session = readSession(req);
@@ -326,6 +341,8 @@ async function currentMember(req){const token=cookieValue(req,MEMBER_COOKIE);if(
 async function handleMemberApi(req,res,url){
  if(!pool)return json(res,503,{error:'Member service unavailable.'});
  if(req.method==='POST'&&url.pathname==='/api/v1/member/register'){
+  const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
+  if(!rateAllowed('member-register:'+ip))return json(res,429,{error:'Too many registration attempts. Try again later.'});
   if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
   let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
   const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',type=b.account_type||'member',org=clean(b.organization,180)||null;
@@ -679,6 +696,13 @@ async function handleEnquiry(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('x-frame-options', 'DENY');
+  res.setHeader('referrer-policy', 'strict-origin-when-cross-origin');
+  res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('cross-origin-opener-policy', 'same-origin');
+  if (process.env.NODE_ENV === 'production') res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains');
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !sameOrigin(req)) return json(res, 403, { error: 'Request origin rejected.' });
   const url = new URL(req.url || '/', 'http://localhost');
   if (req.method === 'GET' && url.pathname === '/health') {
     try {
