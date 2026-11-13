@@ -341,7 +341,7 @@ async function handleAdminLogin(req,res) {
   const [payload]=token.split('.');
   const sessionData=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));
   await pool.query('DELETE FROM admin_sessions WHERE expires_at<=NOW()');
-  await pool.query('INSERT INTO admin_sessions(id,email,token_hash,expires_at) VALUES($1,$2,$3,NOW()+($4 * INTERVAL '1 second'))',[sessionData.id,adminEmail,sessionTokenHash(token),SESSION_TTL_SECONDS]);
+  await pool.query("INSERT INTO admin_sessions(id,email,token_hash,expires_at) VALUES($1,$2,$3,NOW()+($4 * INTERVAL '1 second'))",[sessionData.id,adminEmail,sessionTokenHash(token),SESSION_TTL_SECONDS]);
   setSessionCookie(res,token);
   return json(res,200,{ok:true,email:adminEmail,expiresIn:SESSION_TTL_SECONDS});
 }
