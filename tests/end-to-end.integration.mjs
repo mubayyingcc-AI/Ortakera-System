@@ -113,7 +113,7 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   });
   assert.equal(login.status, 200);
   assert.ok(login.cookie.startsWith('ortakera_member='));
-  const memberCookie = login.cookie;
+  let memberCookie = login.cookie;
 
   const me = await request('/api/v1/member/me', { cookie: memberCookie });
   assert.equal(me.status, 200);
@@ -140,6 +140,12 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   const logout = await request('/api/v1/member/logout', { method: 'POST', cookie: memberCookie });
   assert.equal(logout.status, 200);
   assert.equal((await request('/api/v1/member/me', { cookie: memberCookie })).status, 401);
+  const memberReLogin = await request('/api/v1/member/login', {
+    method: 'POST',
+    body: { email: memberEmail, password: 'Test-only-member-password-2026!' }
+  });
+  assert.equal(memberReLogin.status, 200);
+  memberCookie = memberReLogin.cookie;
 
   const partner = await request('/api/v1/member/register', {
     method: 'POST',
