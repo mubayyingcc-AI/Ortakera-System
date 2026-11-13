@@ -258,6 +258,11 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
     method: 'PATCH', cookie: partnerLogin.cookie, body: { status: 'shortlisted' }
   });
   assert.equal(statusUpdate.status, 200);
+  assert.equal(Object.hasOwn(ownApplication, 'account_id'), false, 'employer response must not expose internal candidate account identifiers');
+  const unrelatedApplication = await request('/api/v1/employer/applications/' + randomBytes(16).toString('hex').replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, '$1-$2-$3-$4-$5'), {
+    method: 'PATCH', cookie: partnerLogin.cookie, body: { status: 'shortlisted' }
+  });
+  assert.equal(unrelatedApplication.status, 404, 'employer cannot update an application outside its own vacancies');
   const updatedApplications = await request('/api/v1/member/applications', { cookie: memberCookie });
   assert.equal(updatedApplications.data.items.find(item => item.id === ownApplication.id).status, 'shortlisted');
 
