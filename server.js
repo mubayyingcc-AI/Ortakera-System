@@ -454,7 +454,7 @@ async function handleMemberApi(req,res,url){
   const ip=clientIp(req);if(!(await rateAllowed('password-reset:'+ip)))return json(res,429,{error:'Too many requests. Try again later.'});
   let b;try{b=await readBody(req,2000)}catch(e){return json(res,e.status||400,{error:e.message})}
   const email=clean(b.email,254).toLowerCase();
-  if(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)){
+  if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
    const q=await pool.query('SELECT id,email,full_name FROM member_accounts WHERE email=$1 AND account_status NOT IN ($2,$3)',[email,'suspended','closed']);
    if(q.rowCount){try{await issueMemberActionToken(q.rows[0],'password_reset')}catch(e){console.error('Password reset delivery:',e.code||e.name)}}
   }
