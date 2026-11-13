@@ -29,7 +29,15 @@ Open http://localhost:3000. The app uses Node's built-in HTTP server and Postgre
 - Vacancy and application backend foundations.
 - Admin review foundations for submitted enquiries and checks.
 - Ten-locale selector with preference persistence and Arabic document direction.
-- Draft integration PR; not merged or deployed.
+- Deployed production preview with PostgreSQL-backed member/employer workflows, administrator review, revocable administrator sessions and shared rate limiting. This is a limited operational preview, not yet a fully launch-cleared employment marketplace.
+
+
+
+## Production deployment and launch gates
+
+As of 2026-11-13, the production Railway environment has the web service and PostgreSQL service online. The latest deployed application commit is `d34f063214aae3e05248cf6636d8c6717c8003c0`. Its deployment pre-start suite passed 18/18 tests; the corresponding GitHub syntax/unit, browser-layout and PostgreSQL end-to-end checks passed. These checks establish the tested application baseline, not full commercial or regulatory readiness.
+
+The production environment currently has a single PostgreSQL replica with a 5,000 MB persistent volume. Scheduled volume backups and point-in-time recovery have **not yet been independently verified as enabled**. Email verification, password recovery, complete page translations, payments, and full accommodation/provider workflows are not available as production services. See [Production recovery and launch gates](docs/PRODUCTION_LAUNCH_GATES.md) before accepting real candidate or employer traffic.
 
 ## Architecture roadmap — not yet live
 
