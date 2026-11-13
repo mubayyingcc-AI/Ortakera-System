@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 116" role="img" aria-labelledby="title desc">
+<title id="title">Ortakera — Opportunity Network</title><desc id="desc">A distinctive bridge-and-path symbol representing people, opportunity and connection across Türkiye and the world.</desc>
+<defs><linearGradient id="bridge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e51b2b"/><stop offset="1" stop-color="#b90f20"/></linearGradient><linearGradient id="teal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22b8b0"/><stop offset="1" stop-color="#087f91"/></linearGradient></defs>
+<g transform="translate(8 8)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M48 77C19 77 7 60 7 42 7 22 23 7 43 7c15 0 27 8 34 20" stroke="#0b2340" stroke-width="9"/>
+<path d="M50 77c29 0 42-17 42-35 0-20-16-35-36-35-15 0-27 8-34 20" stroke="url(#bridge)" stroke-width="9"/>
+<path d="M10 56h77" stroke="#0b2340" stroke-width="6"/>
+<path d="M18 56c11-17 23-25 35-25s24 8 35 25" stroke="url(#teal)" stroke-width="5"/>
+<path d="M52 31v25" stroke="#0b2340" stroke-width="4"/>
+<circle cx="18" cy="56" r="5.5" fill="#e51b2b" stroke="none"/>
+<circle cx="87" cy="56" r="5.5" fill="#22b8b0" stroke="none"/>
+<path d="M52 11l5 8-5 8-5-8z" fill="#e7b35a" stroke="none"/>
+<path d="M52 56v23" stroke="#e7b35a" stroke-width="3"/>
+</g>
+<text x="120" y="64" font-family="Manrope,Arial,sans-serif" font-size="52" font-weight="800" letter-spacing="-2.8" fill="#0b2340">ortakera</text>
+<circle cx="391" cy="55" r="4" fill="#e51b2b"/>
+<text x="122" y="88" font-family="Arial,sans-serif" font-size="10.5" font-weight="700" letter-spacing="3.1" fill="#66768a">OPPORTUNITY NETWORK</text>
+<path d="M122 99h275" stroke="#e7b35a" stroke-width="1.5"/>
+</svg>
