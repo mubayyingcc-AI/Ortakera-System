@@ -5,11 +5,11 @@ Last reviewed: 2026-11-13
 ## Verified deployment baseline
 
 - Railway project: `Ortakera`, production environment.
-- Web service: `Ortakera Web`; latest deployment `bf01ca97-661d-4f99-809e-4d5dc7c88ba2`.
-- Application commit: `d34f063214aae3e05248cf6636d8c6717c8003c0`.
-- Deployment status: `SUCCESS`; web and Postgres services reported online with no Railway health warnings.
-- Deployment pre-start suite: 18 passed, 0 failed.
-- GitHub CI for the deployed commit: syntax/unit, browser-layout and PostgreSQL end-to-end all passed.
+- Web service: `Ortakera Web`; latest observed deployment `3f3bdffe-6554-41ff-a6b7-051e4959e98c`.
+- Application commit: `d1dff1166bf3a8552870502069866409477d4aed`.
+- Deployment status: `SUCCESS`; web and Postgres services reported online, one replica each, no Railway health warnings or pending changes.
+- Deployment pre-start suite: 19 passed, 0 failed; runtime reported `Ortakera server listening on 8080` and `Database schema ready`.
+- GitHub Actions run `43433560892` for the deployed commit completed with conclusion `success`.
 - PostgreSQL is a single replica with a 5,000 MB persistent volume mounted at `/var/lib/postgresql/data`.
 
 These are deployment and test facts only. They do not establish backup recoverability, external browser acceptance, legal permission to conduct recruitment, or complete business operations.
