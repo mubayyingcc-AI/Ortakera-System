@@ -126,6 +126,17 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   assert.equal(registered.status, 201);
   assert.equal(registered.data.account.plan, 'free');
   assert.equal(registered.data.account.account_status, 'active');
+  assert.equal(registered.data.account.email_verified, false);
+  assert.equal(registered.data.email_verification, 'sent');
+  assert.equal(capturedEmails.length, 1, 'registration must send a verification email');
+  const verificationLink = capturedEmails[0].html.match(/href="([^"]+)"/)?.[1];
+  assert.ok(verificationLink, 'verification email must contain a confirmation link');
+  const verificationToken = new URL(verificationLink).searchParams.get('verify');
+  assert.ok(verificationToken);
+  const verified = await request('/api/v1/member/verify-email/confirm', { method: 'POST', body: { token: verificationToken } });
+  assert.equal(verified.status, 200);
+  const replayedVerification = await request('/api/v1/member/verify-email/confirm', { method: 'POST', body: { token: verificationToken } });
+  assert.equal(replayedVerification.status, 400, 'verification links must be single use');
 
   const duplicate = await request('/api/v1/member/register', {
     method: 'POST',
