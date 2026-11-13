@@ -96,6 +96,19 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   const health = await request('/api/v1/health');
   assert.equal(health.status, 200);
   assert.equal(health.data.database, 'connected');
+
+  // PostgreSQL rate-limit buckets must remain atomic under concurrent requests.
+  const limited = await Promise.all(Array.from({ length: 7 }, () =>
+    request('/api/v1/member/password-reset/request', {
+      method: 'POST',
+      clientIp: '198.51.100.77',
+      body: { email: 'rate-limit-probe@ortakera.test' }
+    })
+  ));
+  assert.equal(limited.filter(item => item.status === 200).length, 5,
+    'exactly five requests inside one rate-limit window should be accepted');
+  assert.equal(limited.filter(item => item.status === 429).length, 2,
+    'concurrent excess requests should be rejected by the shared database counter');
   const publicHealth = await fetch(base + '/health');
   assert.equal(publicHealth.headers.get('x-frame-options'), 'DENY');
   assert.equal(publicHealth.headers.get('x-content-type-options'), 'nosniff');
