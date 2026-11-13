@@ -30,6 +30,7 @@ Open http://localhost:3000. The app uses Node's built-in HTTP server and Postgre
 - Admin review foundations for submitted enquiries and checks.
 - Ten-locale selector with preference persistence and Arabic document direction.
 - Deployed production preview with PostgreSQL-backed member/employer workflows, administrator review, revocable administrator sessions and shared rate limiting. This is a limited operational preview, not yet a fully launch-cleared employment marketplace.
+- Member email confirmation and password recovery flows are implemented on the current feature branch. They require a verified sender and Railway environment configuration before production use; see [email delivery setup](docs/EMAIL_DELIVERY_SETUP.md). Existing accounts are not automatically verified and verification is not yet an access gate.
 
 
 
