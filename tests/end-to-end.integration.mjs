@@ -275,4 +275,17 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   const audit = await request('/api/v1/admin/audit', { cookie: adminLogin.cookie });
   assert.equal(audit.status, 200);
   assert.ok(Array.isArray(audit.data.items));
+
+  const secondAdminLogin = await request('/api/v1/admin/login', {
+    method: 'POST', body: { email: adminEmail, password: adminPassword }
+  });
+  assert.equal(secondAdminLogin.status, 200);
+  const adminSession = await request('/api/v1/admin/session', { cookie: secondAdminLogin.cookie });
+  assert.equal(adminSession.status, 200);
+  const adminLogout = await request('/api/v1/admin/logout', { method: 'POST', cookie: secondAdminLogin.cookie });
+  assert.equal(adminLogout.status, 200);
+  const revokedAdminSession = await request('/api/v1/admin/session', { cookie: secondAdminLogin.cookie });
+  assert.equal(revokedAdminSession.status, 401, 'administrator logout must revoke the server-side session');
+  const firstAdminSession = await request('/api/v1/admin/session', { cookie: adminLogin.cookie });
+  assert.equal(firstAdminSession.status, 200, 'logging out one administrator session must not revoke another active session');
 });

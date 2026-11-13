@@ -174,6 +174,11 @@ async function migrate() {
       token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS member_sessions_expiry_idx ON member_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      id UUID PRIMARY KEY, email TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS admin_sessions_expiry_idx ON admin_sessions(expires_at);
     CREATE TABLE IF NOT EXISTS membership_requests (
       id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
       request_type TEXT NOT NULL CHECK(request_type IN ('subscription','agent','partner')),
@@ -267,12 +272,15 @@ function sign(value) {
   return createHmac('sha256', sessionSecret()).update(value).digest('base64url');
 }
 function createSession(email) {
-  const payload = Buffer.from(JSON.stringify({ email, exp: Math.floor(Date.now()/1000)+SESSION_TTL_SECONDS })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ id: randomUUID(), email, exp: Math.floor(Date.now()/1000)+SESSION_TTL_SECONDS })).toString('base64url');
   return payload + '.' + sign(payload);
 }
-function readSession(req) {
+function sessionTokenHash(token) {
+  return createHmac('sha256', sessionSecret()).update(token).digest('hex');
+}
+async function readSession(req) {
   const secret = sessionSecret();
-  if (!secret) return null;
+  if (!secret || !pool) return null;
   const token = cookieValue(req, SESSION_COOKIE);
   const [payload, signature, extra] = token.split('.');
   if (!payload || !signature || extra) return null;
@@ -281,9 +289,10 @@ function readSession(req) {
   if (expected.length !== received.length || !timingSafeEqual(expected, received)) return null;
   try {
     const data = JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));
-    if (!data.email || !Number.isInteger(data.exp) || data.exp < Math.floor(Date.now()/1000)) return null;
+    if (!data.id || !data.email || !Number.isInteger(data.exp) || data.exp < Math.floor(Date.now()/1000)) return null;
     if (data.email !== (process.env.ADMIN_EMAIL || '').trim().toLowerCase()) return null;
-    return data;
+    const active = await pool.query('SELECT id FROM admin_sessions WHERE id=$1 AND email=$2 AND token_hash=$3 AND expires_at>NOW()', [data.id, data.email, sessionTokenHash(token)]);
+    return active.rowCount ? data : null;
   } catch { return null; }
 }
 function setSessionCookie(res, token) {
@@ -304,7 +313,7 @@ function sameOrigin(req) {
   } catch { return false; }
 }
 async function requireAdmin(req,res) {
-  const session = readSession(req);
+  const session = await readSession(req);
   if (!session) { json(res,401,{error:'Administrator sign-in required.'}); return null; }
   return session;
 }
@@ -328,7 +337,12 @@ async function handleAdminLogin(req,res) {
     valid = candidate.length === expected.length && timingSafeEqual(candidate,expected);
   } catch {}
   if (email !== adminEmail || !valid) return json(res,401,{error:'Email or password is incorrect.'});
-  setSessionCookie(res,createSession(adminEmail));
+  const token=createSession(adminEmail);
+  const [payload]=token.split('.');
+  const sessionData=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));
+  await pool.query('DELETE FROM admin_sessions WHERE expires_at<=NOW()');
+  await pool.query("INSERT INTO admin_sessions(id,email,token_hash,expires_at) VALUES($1,$2,$3,NOW()+($4 * INTERVAL '1 second'))",[sessionData.id,adminEmail,sessionTokenHash(token),SESSION_TTL_SECONDS]);
+  setSessionCookie(res,token);
   return json(res,200,{ok:true,email:adminEmail,expiresIn:SESSION_TTL_SECONDS});
 }
 
@@ -473,6 +487,8 @@ async function handleAdminApi(req,res,url) {
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/login') return handleAdminLogin(req,res);
   if (req.method === 'POST' && url.pathname === '/api/v1/admin/logout') {
     if (!sameOrigin(req)) return json(res,403,{error:'Request origin rejected.'});
+    const token=cookieValue(req,SESSION_COOKIE);
+    if(token && sessionSecret() && pool) await pool.query('DELETE FROM admin_sessions WHERE token_hash=$1',[sessionTokenHash(token)]);
     clearSessionCookie(res); return json(res,200,{ok:true});
   }
   const admin = await requireAdmin(req,res);
