@@ -52,6 +52,16 @@ async function waitForHealth(child) {
 
 test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator journeys', async t => {
   const adminHash = await passwordHash(adminPassword);
+  emailServer = createServer(async (req, res) => {
+    let raw = '';
+    for await (const chunk of req) raw += chunk.toString();
+    try { capturedEmails.push(JSON.parse(raw)); } catch {}
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ id: 'test-email-' + capturedEmails.length }));
+  });
+  emailServer.listen(0, '127.0.0.1');
+  await once(emailServer, 'listening');
+  const emailPort = emailServer.address().port;
   server = spawn(process.execPath, ['server.js'], {
     env: {
       ...process.env,
@@ -59,7 +69,11 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
       SESSION_SECRET: sessionSecret,
       ADMIN_EMAIL: adminEmail,
       ADMIN_PASSWORD_HASH: adminHash,
-      NODE_ENV: 'test'
+      NODE_ENV: 'test',
+      APP_BASE_URL: base,
+      RESEND_API_KEY: 'test-key',
+      EMAIL_FROM: 'Ortakera Test <test@ortakera.test>',
+      EMAIL_API_URL: 'http://127.0.0.1:' + emailPort
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -72,6 +86,7 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
       await Promise.race([once(server, 'exit'), new Promise(resolve => setTimeout(resolve, 5000))]);
     }
     if (server && server.exitCode === null) server.kill('SIGKILL');
+    if (emailServer) await new Promise(resolve => emailServer.close(resolve));
   });
 
   await waitForHealth(server);
