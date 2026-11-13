@@ -77,6 +77,19 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   const health = await request('/api/v1/health');
   assert.equal(health.status, 200);
   assert.equal(health.data.database, 'connected');
+  const publicHealth = await fetch(base + '/health');
+  assert.equal(publicHealth.headers.get('x-frame-options'), 'DENY');
+  assert.equal(publicHealth.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(publicHealth.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+
+  const rejectedMissingOrigin = await request('/api/v1/member/register', { method: 'POST', origin: null, body: {
+    full_name: 'Blocked Origin', email: 'blocked-origin@ortakera.test', password: 'Test-only-member-password-2026!'
+  } });
+  assert.equal(rejectedMissingOrigin.status, 403);
+  const rejectedCrossOrigin = await request('/api/v1/member/register', { method: 'POST', origin: 'https://attacker.example', body: {
+    full_name: 'Blocked Origin', email: 'blocked-origin-2@ortakera.test', password: 'Test-only-member-password-2026!'
+  } });
+  assert.equal(rejectedCrossOrigin.status, 403);
 
   const anonymous = await request('/api/v1/member/me');
   assert.equal(anonymous.status, 401);
