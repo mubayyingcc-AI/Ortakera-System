@@ -1,6 +1,6 @@
 # Ortakera Opportunity Network
 
-<p align="center"><img src="public/images/ortakera-official-logo.svg" alt="Ortakera — Connect, Train, Work, Thrive. Your Opportunity in Türkiye" width="520"></p>
+<p align="center"><img src="public/images/ortakera-logo.webp" alt="Ortakera — Connect, Train, Work, Thrive. Your Opportunity in Türkiye" width="520"></p>
 
 <p align="center"><strong>Connect · Train · Work · Thrive — Your Opportunity in Türkiye</strong></p>
 
