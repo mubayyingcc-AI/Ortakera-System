@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { isIP } from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { randomUUID, createHmac, timingSafeEqual, scrypt as scryptCallback, randomBytes } from 'node:crypto';
@@ -236,6 +237,13 @@ function readBody(req, limit = 12000) {
   });
 }
 
+// Railway's public HTTP edge overwrites X-Real-IP with the visitor IP.
+// Do not expose this service to untrusted private-network HTTP callers or a TCP proxy.
+function clientIp(req) {
+  const forwarded = String(req.headers['x-real-ip'] || '').trim();
+  return isIP(forwarded) ? forwarded : (req.socket.remoteAddress || 'unknown');
+}
+
 function clean(value, max) {
   return typeof value === 'string' ? value.trim().replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').slice(0, max) : '';
 }
@@ -325,7 +333,7 @@ async function requireAdmin(req,res) {
   return session;
 }
 async function handleAdminLogin(req,res) {
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
+  const ip = clientIp(req);
   if (!(await rateAllowed('admin:'+ip))) return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
   if (!sameOrigin(req)) return json(res,403,{error:'Request origin rejected.'});
   const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
@@ -366,13 +374,13 @@ async function handleMemberApi(req,res,url){
   let b;try{b=await readBody(req,5000)}catch(e){return json(res,e.status||400,{error:e.message})}
   const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),password=typeof b.password==='string'?b.password:'',type=b.account_type||'member',org=clean(b.organization,180)||null;
   if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<12||password.length>200||!['member','agent','partner','employer'].includes(type)||(['agent','partner','employer'].includes(type)&&!org))return json(res,422,{error:'Enter valid details. Password must contain at least 12 characters; agents, partners and employers must provide an organisation.'});
-  const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
+  const ip = clientIp(req);
   if(!(await rateAllowed('member-register:'+ip)))return json(res,429,{error:'Too many registration attempts. Try again later.'});
   const id=randomUUID(),pw=await memberPassword(password),status=type==='member'?'active':'pending_review';
   const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO member_accounts(id,email,full_name,password_salt,password_hash,account_type,account_status,organization) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,email,name,pw.salt,pw.hash,type,status,org]);if(type!=='member')await client.query('INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,$3,$4::jsonb)',[randomUUID(),id,type,JSON.stringify({organization:org})]);await client.query('COMMIT');return json(res,201,{ok:true,account:{id,email,full_name:name,account_type:type,plan:'free',account_status:status},message:type==='member'?'Free account created. Sign in.':'Application received; access is pending review.'});}catch(e){await client.query('ROLLBACK');if(e.code==='23505')return json(res,409,{error:'An account with this email already exists.'});console.error('Member registration:',e.code||e.name);return json(res,500,{error:'Could not create account.'});}finally{client.release()}
  }
  if(req.method==='POST'&&url.pathname==='/api/v1/member/login'){
-  const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();if(!(await rateAllowed('member-login:'+ip)))return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
+  const ip = clientIp(req);if(!(await rateAllowed('member-login:'+ip)))return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
   if(!sessionSecret())return json(res,503,{error:'Member sessions are not configured.'});
   if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
   let b;try{b=await readBody(req,3000)}catch(e){return json(res,e.status||400,{error:e.message})}
@@ -660,7 +668,7 @@ async function handleAdminApi(req,res,url) {
 }
 
 async function handleEnquiry(req, res) {
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
+  const ip = clientIp(req);
   if (!(await rateAllowed('enquiry:'+ip))) return json(res, 429, { error:'Too many enquiries from this connection. Please try again later.' });
   if (!pool) return json(res, 503, { error:'Enquiry service is not configured yet. Please try again later.' });
 
@@ -758,7 +766,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
   const applyMatch=url.pathname.match(/^\/api\/v1\/jobs\/([A-Z0-9-]+)\/apply$/i);
   if(req.method==='POST'&&applyMatch){
-    const ip=(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').toString().split(',')[0].trim();
+    const ip = clientIp(req);
     if(!(await rateAllowed('apply:'+ip)))return json(res,429,{error:'Too many applications from this connection. Try again later.'});
     let body;try{body=await readBody(req,2000)}catch(error){return json(res,error.status||400,{error:error.message})}
     const email=clean(body.email,254).toLowerCase(),candidateRef=clean(body.candidate_reference,40).toUpperCase();
