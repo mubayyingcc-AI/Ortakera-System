@@ -173,6 +173,15 @@ async function migrate() {
       token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS member_sessions_expiry_idx ON member_sessions(expires_at);
+    ALTER TABLE member_accounts ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+    CREATE TABLE IF NOT EXISTS member_action_tokens (
+      id UUID PRIMARY KEY, account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE CASCADE,
+      purpose TEXT NOT NULL CHECK(purpose IN ('verify_email','password_reset')),
+      token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL,
+      consumed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS member_action_tokens_account_idx ON member_action_tokens(account_id,purpose,created_at DESC);
+    CREATE INDEX IF NOT EXISTS member_action_tokens_expiry_idx ON member_action_tokens(expires_at);
     CREATE TABLE IF NOT EXISTS admin_sessions (
       id UUID PRIMARY KEY, email TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
       expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -364,9 +373,38 @@ async function handleAdminLogin(req,res) {
 const MEMBER_COOKIE='ortakera_member';
 const MEMBER_TTL=2592000;
 async function memberPassword(password,saltHex){const salt=saltHex?Buffer.from(saltHex,'hex'):randomBytes(16);return {salt:salt.toString('hex'),hash:(await scrypt(password,salt,64)).toString('hex')};}
+function memberActionTokenHash(token){return createHmac('sha256',sessionSecret()).update(token).digest('hex');}
+function publicAppUrl(path){const raw=process.env.APP_BASE_URL;if(!raw)return null;try{const url=new URL(raw);if(url.protocol!=='https:'&&!(process.env.NODE_ENV==='test'&&url.hostname==='127.0.0.1'&&url.protocol==='http:'))return null;if(url.username||url.password||url.search||url.hash)return null;return url.origin+path}catch{return null}}
+async function deliverMemberEmail(to,subject,html){
+ const apiKey=process.env.RESEND_API_KEY,from=process.env.EMAIL_FROM;
+ if(!apiKey||!from)return {sent:false,reason:'not_configured'};
+ const endpoint=process.env.NODE_ENV==='test'&&process.env.EMAIL_API_URL?process.env.EMAIL_API_URL:'https://api.resend.com/emails';
+ let response;try{response=await fetch(endpoint,{method:'POST',headers:{authorization:'Bearer '+apiKey,'content-type':'application/json'},body:JSON.stringify({from,to:[to],subject,html}),signal:AbortSignal.timeout(10000)})}catch{return {sent:false,reason:'provider_unavailable'}}
+ if(!response.ok){try{await response.text()}catch{}return {sent:false,reason:'provider_rejected'}}
+ return {sent:true};
+}
+async function issueMemberActionToken(account,purpose){
+ const urlBase=publicAppUrl(purpose==='verify_email'?'/account?verify=':'/account?reset=');
+ if(!urlBase||!process.env.RESEND_API_KEY||!process.env.EMAIL_FROM)return {sent:false,reason:'not_configured'};
+ const raw=randomBytes(32).toString('hex'),hash=memberActionTokenHash(raw),id=randomUUID(),lifetime=purpose==='verify_email'?86400:3600;
+ await pool.query('DELETE FROM member_action_tokens WHERE account_id=$1 AND purpose=$2 AND consumed_at IS NULL',[account.id,purpose]);
+ await pool.query("INSERT INTO member_action_tokens(id,account_id,purpose,token_hash,expires_at) VALUES($1,$2,$3,$4,NOW()+($5 * INTERVAL '1 second'))",[id,account.id,purpose,hash,lifetime]);
+ const link=urlBase+encodeURIComponent(raw),label=purpose==='verify_email'?'Confirm your email address':'Reset your Ortakera password';
+ const safeName=String(account.full_name||'there').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+ const html='<p>Hello '+safeName+',</p><p>'+label+'.</p><p><a href="'+link+'">'+label+'</a></p><p>This link expires in '+(purpose==='verify_email'?'24 hours':'1 hour')+'. If you did not request this, ignore this email.</p>';
+ const sent=await deliverMemberEmail(account.email,'Ortakera — '+label,html);
+ if(!sent.sent)await pool.query('DELETE FROM member_action_tokens WHERE id=$1',[id]);
+ return sent;
+}
+async function consumeMemberActionToken(token,purpose){
+ if(typeof token!=='string'||token.length<32||token.length>128||!/^[a-f0-9]+$/i.test(token))return null;
+ const hash=memberActionTokenHash(token),client=await pool.connect();
+ try{await client.query('BEGIN');const q=await client.query("SELECT t.id,t.account_id,a.email,a.full_name FROM member_action_tokens t JOIN member_accounts a ON a.id=t.account_id WHERE t.token_hash=$1 AND t.purpose=$2 AND t.consumed_at IS NULL AND t.expires_at>NOW() FOR UPDATE OF t",[hash,purpose]);if(!q.rowCount){await client.query('ROLLBACK');return null;}await client.query('UPDATE member_action_tokens SET consumed_at=NOW() WHERE id=$1',[q.rows[0].id]);await client.query('COMMIT');return q.rows[0];}catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+}
+
 function setMemberCookie(res,token,maxAge=MEMBER_TTL){res.setHeader('set-cookie',`${MEMBER_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Lax; Path=/api/v1; Max-Age=${maxAge}`);}
 function memberCookieClear(res){res.setHeader('set-cookie',`${MEMBER_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/api/v1; Max-Age=0`);}
-async function currentMember(req){const token=cookieValue(req,MEMBER_COOKIE);if(!token||!sessionSecret())return null;const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');const q=await pool.query("SELECT a.id,a.email,a.full_name,a.account_type,a.plan,a.account_status,a.organization FROM member_sessions s JOIN member_accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>NOW()",[hash]);return q.rows[0]||null;}
+async function currentMember(req){const token=cookieValue(req,MEMBER_COOKIE);if(!token||!sessionSecret())return null;const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');const q=await pool.query("SELECT a.id,a.email,a.full_name,a.account_type,a.plan,a.account_status,a.organization,a.email_verified_at FROM member_sessions s JOIN member_accounts a ON a.id=s.account_id WHERE s.token_hash=$1 AND s.expires_at>NOW()",[hash]);return q.rows[0]||null;}
 async function handleMemberApi(req,res,url){
  if(!pool)return json(res,503,{error:'Member service unavailable.'});
  if(req.method==='POST'&&url.pathname==='/api/v1/member/register'){
@@ -377,7 +415,7 @@ async function handleMemberApi(req,res,url){
   const ip = clientIp(req);
   if(!(await rateAllowed('member-register:'+ip)))return json(res,429,{error:'Too many registration attempts. Try again later.'});
   const id=randomUUID(),pw=await memberPassword(password),status=type==='member'?'active':'pending_review';
-  const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO member_accounts(id,email,full_name,password_salt,password_hash,account_type,account_status,organization) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,email,name,pw.salt,pw.hash,type,status,org]);if(type!=='member')await client.query('INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,$3,$4::jsonb)',[randomUUID(),id,type,JSON.stringify({organization:org})]);await client.query('COMMIT');return json(res,201,{ok:true,account:{id,email,full_name:name,account_type:type,plan:'free',account_status:status},message:type==='member'?'Free account created. Sign in.':'Application received; access is pending review.'});}catch(e){await client.query('ROLLBACK');if(e.code==='23505')return json(res,409,{error:'An account with this email already exists.'});console.error('Member registration:',e.code||e.name);return json(res,500,{error:'Could not create account.'});}finally{client.release()}
+  const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO member_accounts(id,email,full_name,password_salt,password_hash,account_type,account_status,organization) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[id,email,name,pw.salt,pw.hash,type,status,org]);if(type!=='member')await client.query('INSERT INTO membership_requests(id,account_id,request_type,details) VALUES($1,$2,$3,$4::jsonb)',[randomUUID(),id,type,JSON.stringify({organization:org})]);await client.query('COMMIT');const verification=await issueMemberActionToken({id,email,full_name:name},'verify_email');return json(res,201,{ok:true,account:{id,email,full_name:name,account_type:type,plan:'free',account_status:status,email_verified:false},email_verification:verification.sent?'sent':verification.reason,message:type==='member'?'Free account created. '+(verification.sent?'Check your email to verify your address.':'Email verification is not configured yet; you can request a new link later.'):'Application received; access is pending review.'});}catch(e){await client.query('ROLLBACK');if(e.code==='23505')return json(res,409,{error:'An account with this email already exists.'});console.error('Member registration:',e.code||e.name);return json(res,500,{error:'Could not create account.'});}finally{client.release()}
  }
  if(req.method==='POST'&&url.pathname==='/api/v1/member/login'){
   const ip = clientIp(req);if(!(await rateAllowed('member-login:'+ip)))return json(res,429,{error:'Too many sign-in attempts. Try again later.'});
@@ -392,7 +430,47 @@ async function handleMemberApi(req,res,url){
   await pool.query('DELETE FROM member_sessions WHERE expires_at <= NOW()');
   const raw=randomBytes(32).toString('base64url'),hash=createHmac('sha256',sessionSecret()).update(raw).digest('hex');
   await pool.query("INSERT INTO member_sessions(id,account_id,token_hash,expires_at) VALUES($1,$2,$3,NOW()+INTERVAL '30 days')",[randomUUID(),a.id,hash]);await pool.query('UPDATE member_accounts SET last_login_at=NOW() WHERE id=$1',[a.id]);setMemberCookie(res,raw);
-  return json(res,200,{ok:true,account:{id:a.id,email:a.email,full_name:a.full_name,account_type:a.account_type,plan:a.plan,account_status:a.account_status}});
+  return json(res,200,{ok:true,account:{id:a.id,email:a.email,full_name:a.full_name,account_type:a.account_type,plan:a.plan,account_status:a.account_status,email_verified:Boolean(a.email_verified_at)}});
+ }
+
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/verify-email/resend'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  const account=await currentMember(req);if(!account)return json(res,401,{error:'Sign in required.'});
+  if(account.email_verified_at)return json(res,200,{ok:true,message:'This email address is already verified.'});
+  if(!(await rateAllowed('email-verify:'+account.id)))return json(res,429,{error:'Too many verification requests. Try again later.'});
+  const sent=await issueMemberActionToken(account,'verify_email');
+  if(!sent.sent)return json(res,503,{error:sent.reason==='not_configured'?'Email delivery is not configured. Contact the site administrator.':'Email delivery is temporarily unavailable.'});
+  return json(res,200,{ok:true,message:'Verification email sent. Check your inbox.'});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/verify-email/confirm'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,2000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const action=await consumeMemberActionToken(b.token,'verify_email');if(!action)return json(res,400,{error:'This verification link is invalid, expired or already used.'});
+  await pool.query('UPDATE member_accounts SET email_verified_at=NOW(),updated_at=NOW() WHERE id=$1',[action.account_id]);
+  return json(res,200,{ok:true,message:'Email address verified successfully.'});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/password-reset/request'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  const ip=clientIp(req);if(!(await rateAllowed('password-reset:'+ip)))return json(res,429,{error:'Too many requests. Try again later.'});
+  let b;try{b=await readBody(req,2000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const email=clean(b.email,254).toLowerCase();
+  if(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)){
+   const q=await pool.query('SELECT id,email,full_name FROM member_accounts WHERE email=$1 AND account_status NOT IN ($2,$3)',[email,'suspended','closed']);
+   if(q.rowCount){try{await issueMemberActionToken(q.rows[0],'password_reset')}catch(e){console.error('Password reset delivery:',e.code||e.name)}}
+  }
+  return json(res,200,{ok:true,message:'If an eligible account exists, password reset instructions will be sent.'});
+ }
+ if(req.method==='POST'&&url.pathname==='/api/v1/member/password-reset/complete'){
+  if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
+  let b;try{b=await readBody(req,3000)}catch(e){return json(res,e.status||400,{error:e.message})}
+  const password=typeof b.password==='string'?b.password:'';
+  if(password.length<12||password.length>200)return json(res,422,{error:'Choose a password between 12 and 200 characters.'});
+  const action=await consumeMemberActionToken(b.token,'password_reset');if(!action)return json(res,400,{error:'This reset link is invalid, expired or already used.'});
+  const pw=await memberPassword(password);
+  await pool.query('UPDATE member_accounts SET password_salt=$1,password_hash=$2,updated_at=NOW() WHERE id=$3',[pw.salt,pw.hash,action.account_id]);
+  await pool.query('DELETE FROM member_sessions WHERE account_id=$1',[action.account_id]);
+  await pool.query("UPDATE member_action_tokens SET consumed_at=NOW() WHERE account_id=$1 AND purpose='password_reset' AND consumed_at IS NULL",[action.account_id]);
+  return json(res,200,{ok:true,message:'Password updated. Sign in with your new password.'});
  }
  if(req.method==='POST'&&url.pathname==='/api/v1/member/logout'){if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});const token=cookieValue(req,MEMBER_COOKIE);if(token){const hash=createHmac('sha256',sessionSecret()).update(token).digest('hex');await pool.query('DELETE FROM member_sessions WHERE token_hash=$1',[hash]);}memberCookieClear(res);return json(res,200,{ok:true});}
  if(req.method==='POST'&&url.pathname==='/api/v1/member/logout-all'){
