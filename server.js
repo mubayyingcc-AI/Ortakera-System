@@ -458,7 +458,7 @@ async function handleMemberApi(req,res,url){
    const q=await pool.query('SELECT id,email,full_name FROM member_accounts WHERE email=$1 AND account_status NOT IN ($2,$3)',[email,'suspended','closed']);
    if(q.rowCount){try{await issueMemberActionToken(q.rows[0],'password_reset')}catch(e){console.error('Password reset delivery:',e.code||e.name)}}
   }
-  return json(res,200,{ok:true,message:'If an eligible account exists, password reset instructions will be sent.'});
+  return json(res,200,{ok:true,message:'If an eligible account exists and email delivery is configured, password reset instructions will be sent.'});
  }
  if(req.method==='POST'&&url.pathname==='/api/v1/member/password-reset/complete'){
   if(!sameOrigin(req))return json(res,403,{error:'Origin rejected.'});
