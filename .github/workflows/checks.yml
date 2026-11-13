@@ -1,7 +1,7 @@
 name: Ortakera checks
 on:
   push:
-    branches: [main, feature/ortakera-membership-foundation]
+    branches: [main, feature/ortakera-membership-foundation, feature/ortakera-end-to-end-journeys]
   pull_request:
     branches: [main]
 jobs:
@@ -25,3 +25,29 @@ jobs:
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium
       - run: node --test tests/employment-layout.browser.mjs
+  postgres-end-to-end:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ortakera
+          POSTGRES_PASSWORD: ortakera_test_only
+          POSTGRES_DB: ortakera_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ortakera -d ortakera_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://ortakera:ortakera_test_only@localhost:5432/ortakera_test
+      PGSSLMODE: disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run test:e2e
