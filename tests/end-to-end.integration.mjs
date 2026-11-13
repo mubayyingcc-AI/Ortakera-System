@@ -318,4 +318,22 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   assert.equal(revokedAdminSession.status, 401, 'administrator logout must revoke the server-side session');
   const firstAdminSession = await request('/api/v1/admin/session', { cookie: adminLogin.cookie });
   assert.equal(firstAdminSession.status, 200, 'logging out one administrator session must not revoke another active session');
+
+  const resetRequest = await request('/api/v1/member/password-reset/request', { method: 'POST', clientIp: '198.51.100.44', body: { email: memberEmail } });
+  assert.equal(resetRequest.status, 200);
+  const resetEmail = capturedEmails.find(item => item.subject?.includes('Reset your Ortakera password'));
+  assert.ok(resetEmail, 'password reset request must send a reset email');
+  const resetLink = resetEmail.html.match(/href="([^"]+)"/)?.[1];
+  assert.ok(resetLink);
+  const resetToken = new URL(resetLink).searchParams.get('reset');
+  assert.ok(resetToken);
+  const completedReset = await request('/api/v1/member/password-reset/complete', { method: 'POST', clientIp: '198.51.100.45', body: { token: resetToken, password: 'New-test-member-password-2026!' } });
+  assert.equal(completedReset.status, 200);
+  assert.equal((await request('/api/v1/member/me', { cookie: memberCookie })).status, 401, 'password reset must revoke existing sessions');
+  const oldPasswordLogin = await request('/api/v1/member/login', { method: 'POST', clientIp: '198.51.100.46', body: { email: memberEmail, password: 'Test-only-member-password-2026!' } });
+  assert.equal(oldPasswordLogin.status, 401);
+  const newPasswordLogin = await request('/api/v1/member/login', { method: 'POST', clientIp: '198.51.100.47', body: { email: memberEmail, password: 'New-test-member-password-2026!' } });
+  assert.equal(newPasswordLogin.status, 200);
+  const resetReplay = await request('/api/v1/member/password-reset/complete', { method: 'POST', clientIp: '198.51.100.48', body: { token: resetToken, password: 'Another-test-member-password-2026!' } });
+  assert.equal(resetReplay.status, 400, 'password reset tokens must be single use');
 });
