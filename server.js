@@ -632,7 +632,7 @@ async function handleMemberApi(req,res,url){
    const q=await pool.query(`SELECT i.id,i.offer_reference_snapshot,i.title_snapshot,i.category_snapshot,i.location_snapshot,i.requested_quantity,i.provider_status,i.provider_message,i.indicative_price_amount,i.indicative_price_currency,i.created_at,r.request_reference,r.full_name,r.email,r.locale,r.requested_date,r.party_size,r.message AS customer_message,r.status AS journey_status FROM journey_request_items i JOIN journey_requests r ON r.id=i.journey_request_id WHERE i.provider_account_id=$1 ORDER BY i.created_at DESC LIMIT 250`,[a.id]);
    return json(res,200,{items:q.rows,notice:'Provider responses are expressions of interest or unavailability only. They are not reservations or confirmed services.'});
   }
-  const journeyResponseMatch=url.pathname.match(/^\\/api\\/v1\\/partner\\/journey-requests\\/([0-9a-f-]{36})\\/respond$/i);
+  const journeyResponseMatch=url.pathname.match(/^\/api\/v1\/partner\/journey-requests\/([0-9a-f-]{36})\/respond$/i);
   if(req.method==='PATCH'&&journeyResponseMatch){
    if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
    let b;try{b=await readBody(req,1800)}catch(e){return json(res,e.status||400,{error:e.message})}
@@ -1066,7 +1066,7 @@ const server = http.createServer(async (req, res) => {
    let b;try{b=await readBody(req,6500)}catch(e){return json(res,e.status||400,{error:e.message})}
    const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),message=clean(b.message,1800),locale=['en','tr','de','ru','ar','pt','it','ja','ko','zh'].includes(b.locale)?b.locale:'en';
    const requestKey=clean(b.request_key,36),requestedDate=clean(b.requested_date,10)||null,validRequestedDate=!requestedDate||(Number.isFinite(Date.parse(requestedDate+'T00:00:00Z'))&&new Date(requestedDate+'T00:00:00Z').toISOString().slice(0,10)===requestedDate),partySize=Number(b.party_size),refs=Array.isArray(b.offer_references)?[...new Set(b.offer_references.map(x=>clean(x,40).toUpperCase()).filter(Boolean))]:[],channelCode=clean(b.partner_code,40).toUpperCase();
-   if(name.length<2||!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)||message.length<10||b.consent!==true||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)||!validRequestedDate||!Number.isInteger(partySize)||partySize<1||partySize>50||refs.length<1||refs.length>8||(requestedDate&&!/^\\d{4}-\\d{2}-\\d{2}$/.test(requestedDate)))return json(res,422,{error:'Provide valid contact details, consent, a unique request key, party size (1–50) and between one and eight offer references.'});
+   if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||message.length<10||b.consent!==true||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)||!validRequestedDate||!Number.isInteger(partySize)||partySize<1||partySize>50||refs.length<1||refs.length>8||(requestedDate&&!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)))return json(res,422,{error:'Provide valid contact details, consent, a unique request key, party size (1–50) and between one and eight offer references.'});
    const existing=await pool.query('SELECT request_reference,status,created_at FROM journey_requests WHERE request_key=$1',[requestKey]);
    if(existing.rowCount)return json(res,200,{ok:true,replayed:true,request:existing.rows[0],message:'This request was already received.'});
    const client=await pool.connect();
