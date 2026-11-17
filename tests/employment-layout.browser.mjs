@@ -12,6 +12,11 @@ before(async () => {
   server = createServer(async (req, res) => {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+      if (pathname === '/api/v1/discover' || pathname.startsWith('/api/v1/partner/')) {
+        res.writeHead(423, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ code: 'LEGAL_HOLD', error: 'JourneyWeave is on legal hold.' }));
+        return;
+      }
       const relative = pathname === '/' ? 'index.html' : pathname.slice(1);
       const file = resolve(root, relative);
       if (file !== root && !file.startsWith(root + sep)) { res.writeHead(403).end(); return; }
