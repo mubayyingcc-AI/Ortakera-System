@@ -280,6 +280,57 @@ async function migrate() {
       );
       CREATE INDEX IF NOT EXISTS local_service_requests_provider_idx ON local_service_requests(provider_account_id,created_at DESC);
       CREATE INDEX IF NOT EXISTS local_service_requests_created_idx ON local_service_requests(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS journey_requests (
+        id UUID PRIMARY KEY,
+        request_reference TEXT NOT NULL UNIQUE,
+        request_key UUID NOT NULL UNIQUE,
+        full_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        locale TEXT NOT NULL DEFAULT 'en',
+        requested_date DATE,
+        party_size INTEGER NOT NULL CHECK(party_size BETWEEN 1 AND 50),
+        message TEXT NOT NULL,
+        referral_channel_id UUID REFERENCES local_partner_channels(id) ON DELETE SET NULL,
+        status TEXT NOT NULL DEFAULT 'request_received' CHECK(status IN ('request_received','provider_response_pending','response_available','withdrawn','closed')),
+        consent_at TIMESTAMPTZ NOT NULL,
+        consent_version TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS journey_requests_created_idx ON journey_requests(created_at DESC);
+      CREATE INDEX IF NOT EXISTS journey_requests_status_idx ON journey_requests(status,created_at DESC);
+      CREATE TABLE IF NOT EXISTS journey_request_items (
+        id UUID PRIMARY KEY,
+        journey_request_id UUID NOT NULL REFERENCES journey_requests(id) ON DELETE CASCADE,
+        offer_id UUID REFERENCES local_offers(id) ON DELETE SET NULL,
+        provider_account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE RESTRICT,
+        offer_reference_snapshot TEXT NOT NULL,
+        title_snapshot TEXT NOT NULL,
+        category_snapshot TEXT NOT NULL,
+        location_snapshot TEXT NOT NULL,
+        requested_quantity INTEGER NOT NULL DEFAULT 1 CHECK(requested_quantity BETWEEN 1 AND 50),
+        provider_status TEXT NOT NULL DEFAULT 'submitted' CHECK(provider_status IN ('submitted','provider_interested','provider_unavailable')),
+        provider_message TEXT,
+        indicative_price_amount NUMERIC(12,2),
+        indicative_price_currency TEXT CHECK(indicative_price_currency IN ('EUR','TRY','USD','GBP')),
+        responded_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(journey_request_id,offer_reference_snapshot)
+      );
+      CREATE INDEX IF NOT EXISTS journey_request_items_provider_idx ON journey_request_items(provider_account_id,provider_status,created_at DESC);
+      CREATE INDEX IF NOT EXISTS journey_request_items_parent_idx ON journey_request_items(journey_request_id,created_at);
+      CREATE TABLE IF NOT EXISTS journey_request_events (
+        id UUID PRIMARY KEY,
+        journey_request_id UUID NOT NULL REFERENCES journey_requests(id) ON DELETE CASCADE,
+        item_id UUID REFERENCES journey_request_items(id) ON DELETE SET NULL,
+        actor_type TEXT NOT NULL CHECK(actor_type IN ('customer','partner','admin','system')),
+        actor_reference TEXT,
+        event_type TEXT NOT NULL,
+        event_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS journey_request_events_parent_idx ON journey_request_events(journey_request_id,created_at);
     `);
   }
 
@@ -577,6 +628,34 @@ async function handleMemberApi(req,res,url){
    if(!q.rowCount)return json(res,404,{error:'Offer not found.'});
    return json(res,200,{ok:true,item:q.rows[0]});
   }
+  if(req.method==='GET'&&url.pathname==='/api/v1/partner/journey-requests'){
+   const q=await pool.query(`SELECT i.id,i.offer_reference_snapshot,i.title_snapshot,i.category_snapshot,i.location_snapshot,i.requested_quantity,i.provider_status,i.provider_message,i.indicative_price_amount,i.indicative_price_currency,i.created_at,r.request_reference,r.full_name,r.email,r.locale,r.requested_date,r.party_size,r.message AS customer_message,r.status AS journey_status FROM journey_request_items i JOIN journey_requests r ON r.id=i.journey_request_id WHERE i.provider_account_id=$1 ORDER BY i.created_at DESC LIMIT 250`,[a.id]);
+   return json(res,200,{items:q.rows,notice:'Provider responses are expressions of interest or unavailability only. They are not reservations or confirmed services.'});
+  }
+  const journeyResponseMatch=url.pathname.match(/^\/api\/v1\/partner\/journey-requests\/([0-9a-f-]{36})\/respond$/i);
+  if(req.method==='PATCH'&&journeyResponseMatch){
+   if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+   let b;try{b=await readBody(req,1800)}catch(e){return json(res,e.status||400,{error:e.message})}
+   const response=clean(b.response,32),message=clean(b.message,1000)||null;
+   const amount=b.indicative_price_amount===''||b.indicative_price_amount===null||b.indicative_price_amount===undefined?null:Number(b.indicative_price_amount);
+   const currency=clean(b.indicative_price_currency,3).toUpperCase()||null;
+   if(!['provider_interested','provider_unavailable'].includes(response)||(amount!==null&&(!Number.isFinite(amount)||amount<0||amount>10000000))||((amount===null)!==(!currency))||(currency&&!['EUR','TRY','USD','GBP'].includes(currency)))return json(res,422,{error:'Choose an expression of interest or unavailability. Any indicative amount must include a supported currency.'});
+   if(response==='provider_unavailable'&&(amount!==null||currency))return json(res,422,{error:'Do not attach a price to an unavailable response.'});
+   const client=await pool.connect();
+   try{
+    await client.query('BEGIN');
+    const current=await client.query('SELECT i.*,r.id AS parent_id FROM journey_request_items i JOIN journey_requests r ON r.id=i.journey_request_id WHERE i.id=$1 AND i.provider_account_id=$2 FOR UPDATE OF i',[journeyResponseMatch[1],a.id]);
+    if(!current.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Journey request item not found.'});}
+    if(current.rows[0].provider_status!=='submitted'){await client.query('ROLLBACK');return json(res,409,{error:'A provider response has already been recorded for this item.'});}
+    const updated=await client.query('UPDATE journey_request_items SET provider_status=$1,provider_message=$2,indicative_price_amount=$3,indicative_price_currency=$4,responded_at=NOW() WHERE id=$5 AND provider_account_id=$6 RETURNING id,provider_status,provider_message,indicative_price_amount,indicative_price_currency,responded_at',[response,message,amount,currency,journeyResponseMatch[1],a.id]);
+    await client.query("INSERT INTO journey_request_events(id,journey_request_id,item_id,actor_type,actor_reference,event_type,event_data) VALUES($1,$2,$3,'partner',$4,'provider_response_recorded',$5::jsonb)",[randomUUID(),current.rows[0].parent_id,current.rows[0].id,a.id.toString(),JSON.stringify({response,has_indicative_price:amount!==null})]);
+    const pending=await client.query("SELECT COUNT(*)::int AS count FROM journey_request_items WHERE journey_request_id=$1 AND provider_status='submitted'",[current.rows[0].parent_id]);
+    const parentStatus=Number(pending.rows[0].count)===0?'response_available':'provider_response_pending';
+    await client.query('UPDATE journey_requests SET status=$1,updated_at=NOW() WHERE id=$2',[parentStatus,current.rows[0].parent_id]);
+    await client.query('COMMIT');
+    return json(res,200,{ok:true,item:updated.rows[0],journey_status:parentStatus,notice:'This is not a reservation, provider acceptance, payment or confirmed service.'});
+   }catch(e){await client.query('ROLLBACK');console.error('Journey provider response:',e.code||e.name);return json(res,500,{error:'Could not record the provider response.'});}finally{client.release();}
+  }
   if(req.method==='GET'&&url.pathname==='/api/v1/partner/requests'){
    const q=await pool.query('SELECT r.request_reference,r.full_name,r.email,r.locale,r.requested_timing,r.message,r.status,r.created_at,o.offer_reference,o.title FROM local_service_requests r LEFT JOIN local_offers o ON o.id=r.offer_id WHERE r.provider_account_id=$1 ORDER BY r.created_at DESC LIMIT 200',[a.id]);
    return json(res,200,{items:q.rows});
@@ -689,6 +768,11 @@ async function handleAdminApi(req,res,url) {
   const admin = await requireAdmin(req,res);
   if (!admin) return;
 
+  if(req.method==='GET'&&url.pathname==='/api/v1/admin/journey-requests'){
+   if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'JourneyWeave itinerary operations are unavailable until legal and operational activation.'});
+   const q=await pool.query(`SELECT r.id,r.request_reference,r.full_name,r.email,r.locale,r.requested_date,r.party_size,r.message,r.status,r.created_at,COUNT(i.id)::int AS item_count,COUNT(i.id) FILTER(WHERE i.provider_status<>'submitted')::int AS provider_responses,COALESCE(json_agg(json_build_object('id',i.id,'offer_reference',i.offer_reference_snapshot,'title',i.title_snapshot,'provider_status',i.provider_status,'provider_message',i.provider_message,'indicative_price_amount',i.indicative_price_amount,'indicative_price_currency',i.indicative_price_currency) ORDER BY i.created_at) FILTER(WHERE i.id IS NOT NULL),'[]'::json) AS items FROM journey_requests r LEFT JOIN journey_request_items i ON i.journey_request_id=r.id GROUP BY r.id ORDER BY r.created_at DESC LIMIT 300`);
+   return json(res,200,{items:q.rows});
+  }
   if(req.method==='GET'&&url.pathname==='/api/v1/admin/local-offers'){
    if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'JourneyWeave review tools are unavailable until legal and operational activation.'});
    const q=await pool.query("SELECT o.*,a.organization AS provider_name,a.email AS provider_email FROM local_offers o JOIN member_accounts a ON a.id=o.provider_account_id ORDER BY o.created_at DESC LIMIT 300");
@@ -974,6 +1058,33 @@ const server = http.createServer(async (req, res) => {
     const q=await pool.query(`SELECT o.offer_reference,o.category,o.title,o.location,o.description,o.price_amount,o.price_currency,o.price_basis,o.languages,o.availability_checked_at,a.organization AS provider_name FROM local_offers o JOIN member_accounts a ON a.id=o.provider_account_id WHERE o.active=TRUE AND o.review_status='approved_for_scope' AND o.availability_status='recently_confirmed' AND o.availability_checked_at>NOW()-INTERVAL '24 hours' AND a.account_status='active' AND ($1='' OR o.category=$1) AND ($2='' OR o.location ILIKE '%'||$2||'%') ORDER BY o.updated_at DESC LIMIT 100`,[category,location]);
     return json(res,200,{items:q.rows,availability_rule:'Provider-confirmed within the last 24 hours. Enquiry does not create a booking.'});
    }catch(e){console.error('Discover listing failed:',e.code||e.name);return json(res,500,{error:'Could not load local opportunities.'})}
+  }
+  if(req.method==='POST'&&url.pathname==='/api/v1/discover/journey-requests'){
+   if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'JourneyWeave itinerary requests are disabled pending legal and operational clearance.'});
+   if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+   const ip=clientIp(req);if(!(await rateAllowed('journey-request:'+ip)))return json(res,429,{error:'Too many requests. Try again later.'});
+   let b;try{b=await readBody(req,6500)}catch(e){return json(res,e.status||400,{error:e.message})}
+   const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),message=clean(b.message,1800),locale=['en','tr','de','ru','ar','pt','it','ja','ko','zh'].includes(b.locale)?b.locale:'en';
+   const requestKey=clean(b.request_key,36),requestedDate=clean(b.requested_date,10)||null,validRequestedDate=!requestedDate||(Number.isFinite(Date.parse(requestedDate+'T00:00:00Z'))&&new Date(requestedDate+'T00:00:00Z').toISOString().slice(0,10)===requestedDate),partySize=Number(b.party_size),refs=Array.isArray(b.offer_references)?[...new Set(b.offer_references.map(x=>clean(x,40).toUpperCase()).filter(Boolean))]:[],channelCode=clean(b.partner_code,40).toUpperCase();
+   if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||message.length<10||b.consent!==true||!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey)||!validRequestedDate||!Number.isInteger(partySize)||partySize<1||partySize>50||refs.length<1||refs.length>8||(requestedDate&&!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)))return json(res,422,{error:'Provide valid contact details, consent, a unique request key, party size (1–50) and between one and eight offer references.'});
+   const existing=await pool.query('SELECT request_reference,status,created_at FROM journey_requests WHERE request_key=$1',[requestKey]);
+   if(existing.rowCount)return json(res,200,{ok:true,replayed:true,request:existing.rows[0],message:'This request was already received.'});
+   const client=await pool.connect();
+   try{
+    await client.query('BEGIN');
+    const offers=await client.query(`SELECT o.id,o.offer_reference,o.provider_account_id,o.category,o.title,o.location,a.account_status FROM local_offers o JOIN member_accounts a ON a.id=o.provider_account_id WHERE o.offer_reference=ANY($1::text[]) AND o.active=TRUE AND o.review_status='approved_for_scope' AND o.availability_status='recently_confirmed' AND o.availability_checked_at>NOW()-INTERVAL '24 hours' AND a.account_status='active' FOR SHARE OF o,a`,[refs]);
+    if(offers.rowCount!==refs.length){await client.query('ROLLBACK');return json(res,409,{error:'One or more offers are no longer eligible. Refresh discovery and try again.'});}
+    let channel=null;if(channelCode){const c=await client.query('SELECT id FROM local_partner_channels WHERE channel_code=$1 AND active=TRUE',[channelCode]);if(c.rowCount)channel=c.rows[0];}
+    const id=randomUUID(),reference='JNY-'+new Date().getUTCFullYear()+'-'+id.slice(0,8).toUpperCase();
+    await client.query("INSERT INTO journey_requests(id,request_reference,request_key,full_name,email,locale,requested_date,party_size,message,referral_channel_id,status,consent_at,consent_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'provider_response_pending',NOW(),'journey-request-v1')",[id,reference,requestKey,name,email,locale,requestedDate,partySize,message,channel?.id||null]);
+    for(const offer of offers.rows){
+     const itemId=randomUUID();
+     await client.query('INSERT INTO journey_request_items(id,journey_request_id,offer_id,provider_account_id,offer_reference_snapshot,title_snapshot,category_snapshot,location_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[itemId,id,offer.id,offer.provider_account_id,offer.offer_reference,offer.title,offer.category,offer.location]);
+     await client.query("INSERT INTO journey_request_events(id,journey_request_id,item_id,actor_type,event_type,event_data) VALUES($1,$2,$3,'customer','journey_request_created',$4::jsonb)",[randomUUID(),id,itemId,JSON.stringify({offer_reference:offer.offer_reference,category:offer.category})]);
+    }
+    await client.query('COMMIT');
+    return json(res,201,{ok:true,request:{request_reference:reference,status:'provider_response_pending',item_count:offers.rowCount},message:'Your coordinated enquiry has been received. Providers may respond with interest or unavailability; this is not a booking or reservation.'});
+   }catch(e){await client.query('ROLLBACK');if(e.code==='23505'){const prior=await pool.query('SELECT request_reference,status,created_at FROM journey_requests WHERE request_key=$1',[requestKey]);if(prior.rowCount)return json(res,200,{ok:true,replayed:true,request:prior.rows[0]});}console.error('Journey request failed:',e.code||e.name);return json(res,500,{error:'Could not submit the itinerary enquiry.'});}finally{client.release();}
   }
   if(req.method==='POST'&&url.pathname==='/api/v1/discover/enquiries'){
    if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'Customer enquiries are disabled pending legal and operational clearance.'});
