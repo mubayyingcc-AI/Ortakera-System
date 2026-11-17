@@ -606,6 +606,17 @@ async function handleMemberApi(req,res,url){
    if(!q.rows[0].active)return json(res,403,{error:'This partner referral channel is suspended.'});
    return json(res,200,{channel:q.rows[0],share_url:'/discover?partner='+encodeURIComponent(q.rows[0].channel_code)});
   }
+  if(req.method==='GET'&&url.pathname==='/api/v1/partner/metrics'){
+   const channel=await pool.query('SELECT id FROM local_partner_channels WHERE account_id=$1 AND active=TRUE',[a.id]);
+   if(!channel.rowCount)return json(res,200,{metrics:{service_enquiries:0,journey_requests:0,attributed_requests_30d:0,provider_responses:0,submitted_offers:0},attribution:'No active referral channel yet.'});
+   const q=await pool.query(`SELECT
+    (SELECT COUNT(*)::int FROM local_service_requests WHERE referral_channel_id=$1) AS service_enquiries,
+    (SELECT COUNT(*)::int FROM journey_requests WHERE referral_channel_id=$1) AS journey_requests,
+    ((SELECT COUNT(*) FROM local_service_requests WHERE referral_channel_id=$1 AND created_at>=NOW()-INTERVAL '30 days')+(SELECT COUNT(*) FROM journey_requests WHERE referral_channel_id=$1 AND created_at>=NOW()-INTERVAL '30 days'))::int AS attributed_requests_30d,
+    (SELECT COUNT(*)::int FROM journey_request_items WHERE provider_account_id=$2 AND provider_status IN ('provider_interested','provider_unavailable')) AS provider_responses,
+    (SELECT COUNT(*)::int FROM local_offers WHERE provider_account_id=$2) AS submitted_offers`,[channel.rows[0].id,a.id]);
+   return json(res,200,{metrics:q.rows[0],attribution:'Counts represent submitted enquiries and recorded provider responses only. They are not bookings, completed services, revenue or commission.'});
+  }
   if(req.method==='GET'&&url.pathname==='/api/v1/partner/offers'){
    const q=await pool.query('SELECT id,offer_reference,category,title,location,description,price_amount,price_currency,price_basis,availability_status,availability_checked_at,review_status,review_notes,created_at,updated_at FROM local_offers WHERE provider_account_id=$1 ORDER BY created_at DESC',[a.id]);
    return json(res,200,{items:q.rows});
