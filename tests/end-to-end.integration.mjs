@@ -113,6 +113,18 @@ test('end-to-end PostgreSQL-backed member, employer, enquiry and administrator j
   assert.equal(publicHealth.headers.get('x-frame-options'), 'DENY');
   assert.equal(publicHealth.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(publicHealth.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+  // JourneyWeave must remain technically present but commercially closed by default.
+  const heldDiscovery = await request('/api/v1/discover');
+  assert.equal(heldDiscovery.status, 423);
+  assert.equal(heldDiscovery.data.code, 'LEGAL_HOLD');
+  const heldEnquiry = await request('/api/v1/discover/enquiries', {
+    method: 'POST',
+    body: { full_name: 'Hold Test', email: 'hold-test@ortakera.test', message: 'This request must be blocked by legal hold.', consent: true }
+  });
+  assert.equal(heldEnquiry.status, 423);
+  const heldPartner = await request('/api/v1/partner/offers');
+  assert.equal(heldPartner.status, 423);
+
 
   const rejectedMissingOrigin = await request('/api/v1/member/register', { method: 'POST', origin: null, body: {
     full_name: 'Blocked Origin', email: 'blocked-origin@ortakera.test', password: 'Test-only-member-password-2026!'
