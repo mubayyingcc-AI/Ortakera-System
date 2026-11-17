@@ -225,59 +225,64 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS vacancies_employer_idx ON vacancies(employer_account_id,created_at DESC);
   `);
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS local_partner_channels (
-      id UUID PRIMARY KEY,
-      account_id UUID NOT NULL UNIQUE REFERENCES member_accounts(id) ON DELETE CASCADE,
-      channel_code TEXT NOT NULL UNIQUE,
-      label TEXT NOT NULL DEFAULT 'Ortakera partner channel',
-      active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS local_offers (
-      id UUID PRIMARY KEY,
-      offer_reference TEXT NOT NULL UNIQUE,
-      provider_account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE RESTRICT,
-      category TEXT NOT NULL CHECK(category IN ('local_experience','local_service','airport_transfer','workspace','stay_information')),
-      title TEXT NOT NULL,
-      location TEXT NOT NULL,
-      description TEXT NOT NULL,
-      price_amount NUMERIC(12,2),
-      price_currency TEXT CHECK(price_currency IN ('EUR','TRY','USD','GBP')),
-      price_basis TEXT,
-      languages TEXT,
-      availability_status TEXT NOT NULL DEFAULT 'unknown' CHECK(availability_status IN ('unknown','provider_declared','recently_confirmed','unavailable')),
-      availability_checked_at TIMESTAMPTZ,
-      review_status TEXT NOT NULL DEFAULT 'submitted' CHECK(review_status IN ('submitted','evidence_review','approved_for_scope','needs_more_evidence','declined','suspended')),
-      review_notes TEXT,
-      reviewed_by TEXT,
-      reviewed_at TIMESTAMPTZ,
-      active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS local_offers_public_idx ON local_offers(review_status,availability_status,availability_checked_at,location);
-    CREATE INDEX IF NOT EXISTS local_offers_provider_idx ON local_offers(provider_account_id,created_at DESC);
-    CREATE TABLE IF NOT EXISTS local_service_requests (
-      id UUID PRIMARY KEY,
-      request_reference TEXT NOT NULL UNIQUE,
-      offer_id UUID REFERENCES local_offers(id) ON DELETE SET NULL,
-      provider_account_id UUID REFERENCES member_accounts(id) ON DELETE SET NULL,
-      referral_channel_id UUID REFERENCES local_partner_channels(id) ON DELETE SET NULL,
-      full_name TEXT NOT NULL,
-      email TEXT NOT NULL,
-      locale TEXT NOT NULL DEFAULT 'en',
-      requested_timing TEXT,
-      message TEXT NOT NULL,
-      consent_at TIMESTAMPTZ NOT NULL,
-      consent_version TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'received' CHECK(status IN ('received','triaged','handed_over','responded','resolved','withdrawn','spam')),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS local_service_requests_provider_idx ON local_service_requests(provider_account_id,created_at DESC);
-    CREATE INDEX IF NOT EXISTS local_service_requests_created_idx ON local_service_requests(created_at DESC);
-  `);
+  // Defer JourneyWeave schema creation until the legal/operational activation flag is explicitly enabled.
+  // The code and migrations remain versioned in this branch; dormant production deployments do not touch either database.
+  if (JOURNEYWEAVE_ENABLED) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS local_partner_channels (
+        id UUID PRIMARY KEY,
+        account_id UUID NOT NULL UNIQUE REFERENCES member_accounts(id) ON DELETE CASCADE,
+        channel_code TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL DEFAULT 'Ortakera partner channel',
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS local_offers (
+        id UUID PRIMARY KEY,
+        offer_reference TEXT NOT NULL UNIQUE,
+        provider_account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE RESTRICT,
+        category TEXT NOT NULL CHECK(category IN ('local_experience','local_service','airport_transfer','workspace','stay_information')),
+        title TEXT NOT NULL,
+        location TEXT NOT NULL,
+        description TEXT NOT NULL,
+        price_amount NUMERIC(12,2),
+        price_currency TEXT CHECK(price_currency IN ('EUR','TRY','USD','GBP')),
+        price_basis TEXT,
+        languages TEXT,
+        availability_status TEXT NOT NULL DEFAULT 'unknown' CHECK(availability_status IN ('unknown','provider_declared','recently_confirmed','unavailable')),
+        availability_checked_at TIMESTAMPTZ,
+        review_status TEXT NOT NULL DEFAULT 'submitted' CHECK(review_status IN ('submitted','evidence_review','approved_for_scope','needs_more_evidence','declined','suspended')),
+        review_notes TEXT,
+        reviewed_by TEXT,
+        reviewed_at TIMESTAMPTZ,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS local_offers_public_idx ON local_offers(review_status,availability_status,availability_checked_at,location);
+      CREATE INDEX IF NOT EXISTS local_offers_provider_idx ON local_offers(provider_account_id,created_at DESC);
+      CREATE TABLE IF NOT EXISTS local_service_requests (
+        id UUID PRIMARY KEY,
+        request_reference TEXT NOT NULL UNIQUE,
+        offer_id UUID REFERENCES local_offers(id) ON DELETE SET NULL,
+        provider_account_id UUID REFERENCES member_accounts(id) ON DELETE SET NULL,
+        referral_channel_id UUID REFERENCES local_partner_channels(id) ON DELETE SET NULL,
+        full_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        locale TEXT NOT NULL DEFAULT 'en',
+        requested_timing TEXT,
+        message TEXT NOT NULL,
+        consent_at TIMESTAMPTZ NOT NULL,
+        consent_version TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'received' CHECK(status IN ('received','triaged','handed_over','responded','resolved','withdrawn','spam')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS local_service_requests_provider_idx ON local_service_requests(provider_account_id,created_at DESC);
+      CREATE INDEX IF NOT EXISTS local_service_requests_created_idx ON local_service_requests(created_at DESC);
+    `);
+  }
+
 
 }
 
