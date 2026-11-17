@@ -222,6 +222,60 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS vacancies_employer_idx ON vacancies(employer_account_id,created_at DESC);
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS local_partner_channels (
+      id UUID PRIMARY KEY,
+      account_id UUID NOT NULL UNIQUE REFERENCES member_accounts(id) ON DELETE CASCADE,
+      channel_code TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL DEFAULT 'Ortakera partner channel',
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS local_offers (
+      id UUID PRIMARY KEY,
+      offer_reference TEXT NOT NULL UNIQUE,
+      provider_account_id UUID NOT NULL REFERENCES member_accounts(id) ON DELETE RESTRICT,
+      category TEXT NOT NULL CHECK(category IN ('local_experience','local_service','airport_transfer','workspace','stay_information')),
+      title TEXT NOT NULL,
+      location TEXT NOT NULL,
+      description TEXT NOT NULL,
+      price_amount NUMERIC(12,2),
+      price_currency TEXT CHECK(price_currency IN ('EUR','TRY','USD','GBP')),
+      price_basis TEXT,
+      languages TEXT,
+      availability_status TEXT NOT NULL DEFAULT 'unknown' CHECK(availability_status IN ('unknown','provider_declared','recently_confirmed','unavailable')),
+      availability_checked_at TIMESTAMPTZ,
+      review_status TEXT NOT NULL DEFAULT 'submitted' CHECK(review_status IN ('submitted','evidence_review','approved_for_scope','needs_more_evidence','declined','suspended')),
+      review_notes TEXT,
+      reviewed_by TEXT,
+      reviewed_at TIMESTAMPTZ,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS local_offers_public_idx ON local_offers(review_status,availability_status,availability_checked_at,location);
+    CREATE INDEX IF NOT EXISTS local_offers_provider_idx ON local_offers(provider_account_id,created_at DESC);
+    CREATE TABLE IF NOT EXISTS local_service_requests (
+      id UUID PRIMARY KEY,
+      request_reference TEXT NOT NULL UNIQUE,
+      offer_id UUID REFERENCES local_offers(id) ON DELETE SET NULL,
+      provider_account_id UUID REFERENCES member_accounts(id) ON DELETE SET NULL,
+      referral_channel_id UUID REFERENCES local_partner_channels(id) ON DELETE SET NULL,
+      full_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      locale TEXT NOT NULL DEFAULT 'en',
+      requested_timing TEXT,
+      message TEXT NOT NULL,
+      consent_at TIMESTAMPTZ NOT NULL,
+      consent_version TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'received' CHECK(status IN ('received','triaged','handed_over','responded','resolved','withdrawn','spam')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS local_service_requests_provider_idx ON local_service_requests(provider_account_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS local_service_requests_created_idx ON local_service_requests(created_at DESC);
+  `);
+
 }
 
 function json(res, status, payload) {
@@ -482,6 +536,44 @@ async function handleMemberApi(req,res,url){
   return json(res,200,{ok:true,message:'All active sessions have been revoked. Sign in again on this device if needed.'});
  }
  const a=await currentMember(req);
+
+ if(url.pathname.startsWith('/api/v1/partner/')){
+  if(!a)return json(res,401,{error:'Sign in required.'});
+  if(a.account_type!=='partner'||a.account_status!=='active')return json(res,403,{error:'An approved Ortakera partner account is required.'});
+  if(req.method==='GET'&&url.pathname==='/api/v1/partner/channel'){
+   const code='OK'+a.id.replace(/-/g,'').slice(0,10).toUpperCase();
+   const q=await pool.query("INSERT INTO local_partner_channels(id,account_id,channel_code) VALUES($1,$2,$3) ON CONFLICT(account_id) DO UPDATE SET active=TRUE RETURNING channel_code,label,active",[randomUUID(),a.id,code]);
+   return json(res,200,{channel:q.rows[0],share_url:'/discover?partner='+encodeURIComponent(q.rows[0].channel_code)});
+  }
+  if(req.method==='GET'&&url.pathname==='/api/v1/partner/offers'){
+   const q=await pool.query('SELECT offer_reference,category,title,location,description,price_amount,price_currency,price_basis,availability_status,availability_checked_at,review_status,review_notes,created_at,updated_at FROM local_offers WHERE provider_account_id=$1 ORDER BY created_at DESC',[a.id]);
+   return json(res,200,{items:q.rows});
+  }
+  if(req.method==='POST'&&url.pathname==='/api/v1/partner/offers'){
+   if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+   let b;try{b=await readBody(req,7000)}catch(e){return json(res,e.status||400,{error:e.message})}
+   const category=clean(b.category,40),title=clean(b.title,140),location=clean(b.location,120),description=clean(b.description,2400),price= b.price_amount===''||b.price_amount===null||b.price_amount===undefined?null:Number(b.price_amount),currency=clean(b.price_currency,3).toUpperCase()||null,priceBasis=clean(b.price_basis,80)||null,languages=clean(b.languages,160)||null;
+   if(!['local_experience','local_service','airport_transfer','workspace','stay_information'].includes(category)||title.length<4||location.length<2||description.length<30|| (price!==null&&(!Number.isFinite(price)||price<0||price>10000000)) || (currency&&!['EUR','TRY','USD','GBP'].includes(currency)) || ((price===null)!==(!currency)))return json(res,422,{error:'Provide a valid category, title, location and description. Price and currency must be supplied together.'});
+   const id=randomUUID(),reference='LOC-'+id.slice(0,8).toUpperCase();
+   const q=await pool.query("INSERT INTO local_offers(id,offer_reference,provider_account_id,category,title,location,description,price_amount,price_currency,price_basis,languages) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING offer_reference,category,title,location,availability_status,review_status,created_at",[id,reference,a.id,category,title,location,description,price,currency,priceBasis,languages]);
+   return json(res,201,{ok:true,item:q.rows[0],message:'Offer submitted for evidence review. It is not public and is not a confirmed booking.'});
+  }
+  const availabilityMatch=url.pathname.match(/^\/api\/v1\/partner\/offers\/([0-9a-f-]{36})\/availability$/i);
+  if(req.method==='PATCH'&&availabilityMatch){
+   if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+   let b;try{b=await readBody(req,1000)}catch(e){return json(res,e.status||400,{error:e.message})}
+   if(!['recently_confirmed','unavailable','provider_declared'].includes(b.availability_status))return json(res,422,{error:'Choose a valid availability state.'});
+   const q=await pool.query('UPDATE local_offers SET availability_status=$1,availability_checked_at=NOW(),updated_at=NOW() WHERE id=$2 AND provider_account_id=$3 RETURNING offer_reference,availability_status,availability_checked_at,review_status',[b.availability_status,availabilityMatch[1],a.id]);
+   if(!q.rowCount)return json(res,404,{error:'Offer not found.'});
+   return json(res,200,{ok:true,item:q.rows[0]});
+  }
+  if(req.method==='GET'&&url.pathname==='/api/v1/partner/requests'){
+   const q=await pool.query('SELECT r.request_reference,r.full_name,r.email,r.locale,r.requested_timing,r.message,r.status,r.created_at,o.offer_reference,o.title FROM local_service_requests r LEFT JOIN local_offers o ON o.id=r.offer_id WHERE r.provider_account_id=$1 ORDER BY r.created_at DESC LIMIT 200',[a.id]);
+   return json(res,200,{items:q.rows});
+  }
+  return json(res,404,{error:'Partner endpoint not found.'});
+ }
+
  if(req.method==='GET'&&url.pathname==='/api/v1/member/me'){if(!a)return json(res,401,{error:'Sign in required.'});return json(res,200,{ok:true,account:a});}
 
 
@@ -586,6 +678,26 @@ async function handleAdminApi(req,res,url) {
   }
   const admin = await requireAdmin(req,res);
   if (!admin) return;
+
+  if(req.method==='GET'&&url.pathname==='/api/v1/admin/local-offers'){
+   const q=await pool.query("SELECT o.*,a.organization AS provider_name,a.email AS provider_email FROM local_offers o JOIN member_accounts a ON a.id=o.provider_account_id ORDER BY o.created_at DESC LIMIT 300");
+   return json(res,200,{items:q.rows});
+  }
+  const localOfferMatch=url.pathname.match(/^\/api\/v1\/admin\/local-offers\/([0-9a-f-]{36})$/i);
+  if(req.method==='PATCH'&&localOfferMatch){
+   if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+   let b;try{b=await readBody(req,2500)}catch(e){return json(res,e.status||400,{error:e.message})}
+   const allowed=['evidence_review','approved_for_scope','needs_more_evidence','declined','suspended'];
+   if(!allowed.includes(b.review_status))return json(res,422,{error:'Invalid offer review status.'});
+   const notes=clean(b.review_notes,1800);
+   if(['approved_for_scope','declined','suspended'].includes(b.review_status)&&notes.length<20)return json(res,422,{error:'Record the review scope, evidence considered and limitations (at least 20 characters).'});
+   const current=await pool.query('SELECT * FROM local_offers WHERE id=$1',[localOfferMatch[1]]);
+   if(!current.rowCount)return json(res,404,{error:'Local offer not found.'});
+   const q=await pool.query('UPDATE local_offers SET review_status=$1,review_notes=$2,reviewed_by=$3,reviewed_at=NOW(),updated_at=NOW() WHERE id=$4 RETURNING *',[b.review_status,notes||null,admin.email,localOfferMatch[1]]);
+   await pool.query('INSERT INTO admin_audit(actor_email,action,entity_type,entity_id,before_state,after_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb)',[admin.email,'local_offer.reviewed','local_offer',localOfferMatch[1],JSON.stringify(current.rows[0]),JSON.stringify(q.rows[0])]);
+   return json(res,200,{ok:true,item:q.rows[0]});
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/v1/admin/session') return json(res,200,{ok:true,email:admin.email});
   if (req.method === 'GET' && url.pathname === '/api/v1/admin/applications') {
     const result=await pool.query(`SELECT a.id,a.status,a.created_at,v.reference_code AS vacancy_reference,v.title,e.reference_code AS candidate_reference,e.name,e.email FROM job_applications a JOIN vacancies v ON v.id=a.vacancy_id JOIN enquiries e ON e.id=a.candidate_enquiry_id ORDER BY a.created_at DESC LIMIT 300`);
@@ -842,6 +954,32 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname.startsWith('/api/v1/member/') || url.pathname.startsWith('/api/v1/employer/')) return handleMemberApi(req,res,url);
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
+
+  if(req.method==='GET'&&url.pathname==='/api/v1/discover'){
+   try{
+    const category=clean(url.searchParams.get('category'),40),location=clean(url.searchParams.get('location'),120);
+    const q=await pool.query(`SELECT o.offer_reference,o.category,o.title,o.location,o.description,o.price_amount,o.price_currency,o.price_basis,o.languages,o.availability_checked_at,a.organization AS provider_name FROM local_offers o JOIN member_accounts a ON a.id=o.provider_account_id WHERE o.active=TRUE AND o.review_status='approved_for_scope' AND o.availability_status='recently_confirmed' AND o.availability_checked_at>NOW()-INTERVAL '24 hours' AND a.account_status='active' AND ($1='' OR o.category=$1) AND ($2='' OR o.location ILIKE '%'||$2||'%') ORDER BY o.updated_at DESC LIMIT 100`,[category,location]);
+    return json(res,200,{items:q.rows,availability_rule:'Provider-confirmed within the last 24 hours. Enquiry does not create a booking.'});
+   }catch(e){console.error('Discover listing failed:',e.code||e.name);return json(res,500,{error:'Could not load local opportunities.'})}
+  }
+  if(req.method==='POST'&&url.pathname==='/api/v1/discover/enquiries'){
+   if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
+   const ip=clientIp(req);if(!(await rateAllowed('discover-enquiry:'+ip)))return json(res,429,{error:'Too many requests. Try again later.'});
+   let b;try{b=await readBody(req,4500)}catch(e){return json(res,e.status||400,{error:e.message})}
+   const name=clean(b.full_name,120),email=clean(b.email,254).toLowerCase(),message=clean(b.message,1800),timing=clean(b.requested_timing,120)||null,locale=['en','tr','de','ru','ar','pt','it','ja','ko','zh'].includes(b.locale)?b.locale:'en',offerRef=clean(b.offer_reference,40).toUpperCase(),channelCode=clean(b.partner_code,24).toUpperCase();
+   if(name.length<2||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||message.length<10||b.consent!==true)return json(res,422,{error:'Enter your name, valid email, request details and consent.'});
+   const client=await pool.connect();
+   try{
+    await client.query('BEGIN');
+    let offer=null;if(offerRef){const o=await client.query("SELECT id,provider_account_id FROM local_offers WHERE offer_reference=$1 AND active=TRUE AND review_status='approved_for_scope' AND availability_status='recently_confirmed' AND availability_checked_at>NOW()-INTERVAL '24 hours'",[offerRef]);if(!o.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'This offer is no longer available for enquiry. Please refresh the page.'});}offer=o.rows[0];}
+    let channel=null;if(channelCode){const c=await client.query('SELECT id FROM local_partner_channels WHERE channel_code=$1 AND active=TRUE',[channelCode]);if(c.rowCount)channel=c.rows[0];}
+    const id=randomUUID(),reference='REQ-'+id.slice(0,8).toUpperCase();
+    const q=await client.query("INSERT INTO local_service_requests(id,request_reference,offer_id,provider_account_id,referral_channel_id,full_name,email,locale,requested_timing,message,consent_at,consent_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),'local-enquiry-v1') RETURNING request_reference,status,created_at",[id,reference,offer?.id||null,offer?.provider_account_id||null,channel?.id||null,name,email,locale,timing,message]);
+    await client.query('COMMIT');
+    return json(res,201,{ok:true,request:q.rows[0],message:'Your enquiry has been received. This is not a booking or availability guarantee.'});
+   }catch(e){await client.query('ROLLBACK');console.error('Discover enquiry failed:',e.code||e.name);return json(res,500,{error:'Could not submit your enquiry.'})}finally{client.release()}
+  }
+
   const applyMatch=url.pathname.match(/^\/api\/v1\/jobs\/([A-Z0-9-]+)\/apply$/i);
   if(req.method==='POST'&&applyMatch){
     const ip = clientIp(req);
@@ -865,6 +1003,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/admin') pathname = '/admin.html';
   if (pathname === '/employment') pathname = '/employment.html';
   if (pathname === '/account') pathname = '/account.html';
+  if (pathname === '/discover') pathname = '/discover.html';
+  if (pathname === '/partner') pathname = '/partner.html';
   const file = resolve(root, `.${pathname}`);
   if (file !== root && !file.startsWith(root + sep)) return json(res, 400, { error:'Invalid path' });
   try {
