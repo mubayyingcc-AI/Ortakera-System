@@ -690,11 +690,13 @@ async function handleAdminApi(req,res,url) {
   if (!admin) return;
 
   if(req.method==='GET'&&url.pathname==='/api/v1/admin/local-offers'){
+   if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'JourneyWeave review tools are unavailable until legal and operational activation.'});
    const q=await pool.query("SELECT o.*,a.organization AS provider_name,a.email AS provider_email FROM local_offers o JOIN member_accounts a ON a.id=o.provider_account_id ORDER BY o.created_at DESC LIMIT 300");
    return json(res,200,{items:q.rows});
   }
   const localOfferMatch=url.pathname.match(/^\/api\/v1\/admin\/local-offers\/([0-9a-f-]{36})$/i);
   if(req.method==='PATCH'&&localOfferMatch){
+   if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'JourneyWeave review tools are unavailable until legal and operational activation.'});
    if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
    let b;try{b=await readBody(req,2500)}catch(e){return json(res,e.status||400,{error:e.message})}
    const allowed=['evidence_review','approved_for_scope','needs_more_evidence','declined','suspended'];
