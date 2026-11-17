@@ -6,3 +6,5 @@ test('partner workspace uses authenticated backend endpoints and review states',
 
 test('JourneyWeave is held closed by default until explicit legal and operational activation',async()=>{const [s,h,p,d]=await Promise.all([read('server.js'),read('public/discover.html'),read('public/partner.html'),read('public/discover.js')]);assert.ok(s.includes("process.env.JOURNEYWEAVE_ENABLED === 'true'"));assert.ok(s.includes("code:'LEGAL_HOLD'"));assert.ok(h.includes('LEGAL HOLD'));assert.ok(p.includes('LEGAL HOLD'));assert.ok(d.includes('LEGAL HOLD:'));});
 test('partner referral channel creation does not reactivate a suspended channel',async()=>{const s=await read('server.js');assert.ok(s.includes('randomBytes(16).toString(\'hex\')'));assert.ok(s.includes('if(!q.rows[0].active)return json(res,403'));assert.ok(!s.includes('DO UPDATE SET active=TRUE'));});
+
+test('admin JourneyWeave review endpoints are also held until activation',async()=>{const s=await read('server.js');assert.ok(s.includes("JourneyWeave review tools are unavailable until legal and operational activation."));assert.ok(s.includes("if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD'"));});
