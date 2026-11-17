@@ -12,6 +12,9 @@ const SESSION_COOKIE = 'ortakera_admin';
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const root = resolve(process.cwd(), 'public');
 const port = Number(process.env.PORT || 3000);
+// Commercial JourneyWeave routes remain closed until legal and operational approval is recorded.
+// The default is OFF in every environment unless explicitly enabled after the release gates pass.
+const JOURNEYWEAVE_ENABLED = process.env.JOURNEYWEAVE_ENABLED === 'true';
 const pool = process.env.DATABASE_URL ? new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined,
@@ -538,11 +541,13 @@ async function handleMemberApi(req,res,url){
  const a=await currentMember(req);
 
  if(url.pathname.startsWith('/api/v1/partner/')){
+  if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'JourneyWeave is held pending legal and operational clearance.'});
   if(!a)return json(res,401,{error:'Sign in required.'});
   if(a.account_type!=='partner'||a.account_status!=='active')return json(res,403,{error:'An approved Ortakera partner account is required.'});
   if(req.method==='GET'&&url.pathname==='/api/v1/partner/channel'){
-   const code='OK'+a.id.replace(/-/g,'').slice(0,10).toUpperCase();
-   const q=await pool.query("INSERT INTO local_partner_channels(id,account_id,channel_code) VALUES($1,$2,$3) ON CONFLICT(account_id) DO UPDATE SET active=TRUE RETURNING channel_code,label,active",[randomUUID(),a.id,code]);
+   const code='OK'+randomBytes(16).toString('hex').toUpperCase();
+   const q=await pool.query("INSERT INTO local_partner_channels(id,account_id,channel_code) VALUES($1,$2,$3) ON CONFLICT(account_id) DO UPDATE SET label=local_partner_channels.label RETURNING channel_code,label,active",[randomUUID(),a.id,code]);
+   if(!q.rows[0].active)return json(res,403,{error:'This partner referral channel is suspended.'});
    return json(res,200,{channel:q.rows[0],share_url:'/discover?partner='+encodeURIComponent(q.rows[0].channel_code)});
   }
   if(req.method==='GET'&&url.pathname==='/api/v1/partner/offers'){
@@ -956,6 +961,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
 
   if(req.method==='GET'&&url.pathname==='/api/v1/discover'){
+   if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'Discover Türkiye is in preparation and is not accepting public offers yet.'});
    try{
     const category=clean(url.searchParams.get('category'),40),location=clean(url.searchParams.get('location'),120);
     const q=await pool.query(`SELECT o.offer_reference,o.category,o.title,o.location,o.description,o.price_amount,o.price_currency,o.price_basis,o.languages,o.availability_checked_at,a.organization AS provider_name FROM local_offers o JOIN member_accounts a ON a.id=o.provider_account_id WHERE o.active=TRUE AND o.review_status='approved_for_scope' AND o.availability_status='recently_confirmed' AND o.availability_checked_at>NOW()-INTERVAL '24 hours' AND a.account_status='active' AND ($1='' OR o.category=$1) AND ($2='' OR o.location ILIKE '%'||$2||'%') ORDER BY o.updated_at DESC LIMIT 100`,[category,location]);
@@ -963,6 +969,7 @@ const server = http.createServer(async (req, res) => {
    }catch(e){console.error('Discover listing failed:',e.code||e.name);return json(res,500,{error:'Could not load local opportunities.'})}
   }
   if(req.method==='POST'&&url.pathname==='/api/v1/discover/enquiries'){
+   if(!JOURNEYWEAVE_ENABLED)return json(res,423,{code:'LEGAL_HOLD',error:'Customer enquiries are disabled pending legal and operational clearance.'});
    if(!sameOrigin(req))return json(res,403,{error:'Request origin rejected.'});
    const ip=clientIp(req);if(!(await rateAllowed('discover-enquiry:'+ip)))return json(res,429,{error:'Too many requests. Try again later.'});
    let b;try{b=await readBody(req,4500)}catch(e){return json(res,e.status||400,{error:e.message})}
