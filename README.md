@@ -40,6 +40,10 @@ As of 2026-11-13, the production Railway environment has the web service and Pos
 
 The production environment currently has a single PostgreSQL replica with a 5,000 MB persistent volume. Scheduled volume backups and point-in-time recovery have **not yet been independently verified as enabled**. Email verification, password recovery, complete page translations, payments, and full accommodation/provider workflows are not available as production services. See [Production recovery and launch gates](docs/PRODUCTION_LAUNCH_GATES.md) before accepting real candidate or employer traffic.
 
+## JourneyWeave preparation architecture
+
+See [JourneyWeave coordinated local opportunity requests](docs/JOURNEYWEAVE_COORDINATED_REQUESTS.md). JourneyWeave now includes a guarded multi-provider request workflow, PartnerReach provider responses, idempotent Journey Requests, append-only Request Thread events and an administrative queue. This is preparation architecture only; it is not a booking, reservation, payment or supplier-fulfilment service. The production legal hold remains active and its migration is skipped until written legal and operational approval.
+
 ## Architecture roadmap — not yet live
 
 See [TürkiyePass & Regional Opportunity Intelligence foundation](docs/ORTAKERA_TURKIYEPASS_ROI_FOUNDATION.md).
