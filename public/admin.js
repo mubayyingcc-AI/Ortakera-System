@@ -21,10 +21,11 @@ async function loadEmployment(kind){
   const data=await api('/api/v1/admin/'+kind);const rows=data.items||[];
   if(!rows.length){host.innerHTML='<div class="admin-empty">No records found.</div>';return}
   host.innerHTML=rows.map(row=>{
-   const title=row.agency_name||row.name||row.title||row.employer_name||row.reference_code;
-   const reference=row.reference_code||row.vacancy_reference||'';
+   const title=row.request_reference||row.agency_name||row.name||row.title||row.employer_name||row.reference_code;
+   const reference=row.reference_code||row.vacancy_reference||row.request_reference||'';
    const meta=[reference,row.email||row.location||row.current_location||row.jurisdiction||''].filter(Boolean).join(' · ');
    let controls='';
+   if(kind==='journey-requests')controls='<p class="admin-muted">'+esc(row.status)+' · '+esc(row.item_count)+' offer items · '+esc(row.provider_responses)+' provider responses. These are enquiries, not bookings.</p>'+(row.items||[]).map(item=>'<p><strong>'+esc(item.title)+'</strong> · '+esc(item.offer_reference)+' · '+esc(item.provider_status)+(item.provider_message?' — '+esc(item.provider_message):'')+'</p>').join('');
    if(kind==='local-offers')controls='<p class="admin-muted">LEGAL HOLD: technical evidence review only. This decision does not authorise commercial operation or public publication.</p><div class="admin-actions"><label>Review <select data-local-status="'+esc(row.id)+'">'+['submitted','evidence_review','approved_for_scope','needs_more_evidence','declined','suspended'].map(st=>'<option value="'+st+'" '+(row.review_status===st?'selected':'')+'>'+st.replaceAll('_',' ')+'</option>').join('')+'</select></label><label>Review notes<textarea data-local-notes="'+esc(row.id)+'" rows="3" maxlength="1800" placeholder="Evidence reviewed, scope, limits and follow-up">'+esc(row.review_notes||'')+'</textarea></label><button class="admin-btn" data-local-save="'+esc(row.id)+'" type="button">Save local offer review</button></div>';
    if(kind==='job-checks')controls='<div class="admin-actions"><label>Review <select data-check-status="'+esc(row.id)+'">'+['received','due_diligence','official_source_confirmed','unable_to_verify','suspected_fraud','closed'].map(st=>'<option value="'+st+'" '+(row.review_status===st?'selected':'')+'>'+st.replaceAll('_',' ')+'</option>').join('')+'</select></label><label>Findings / official source<textarea data-check-findings="'+esc(row.id)+'" rows="3" maxlength="2500" placeholder="Record official source and evidence. Required for confirmed.">'+esc(row.review_findings||'')+'</textarea></label><button class="admin-btn" data-check-save="'+esc(row.id)+'" type="button">Save review</button></div>';
    if(kind==='recruitment-partners')controls='<div class="admin-actions"><label>Review status <select data-partner-status="'+esc(row.id)+'">'+['received','due_diligence','approved','declined','suspended'].map(st=>'<option value="'+st+'" '+(row.review_status===st?'selected':'')+'>'+st.replace('_',' ')+'</option>').join('')+'</select></label><button class="admin-btn" data-partner-save="'+esc(row.id)+'" type="button">Save review</button></div>';
@@ -71,3 +72,4 @@ async function loadMembershipRequests(){
 $('loadMembership')?.addEventListener('click',loadMembershipRequests);
 
 $('loadLocalOffers')?.addEventListener('click',()=>loadEmployment('local-offers'));
+$('loadJourneyRequests')?.addEventListener('click',()=>loadEmployment('journey-requests'));
