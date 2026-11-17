@@ -952,7 +952,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 503, { ok:false, api:'v1', database:'unavailable' });
     }
   }
-  if (url.pathname.startsWith('/api/v1/member/') || url.pathname.startsWith('/api/v1/employer/')) return handleMemberApi(req,res,url);
+  if (url.pathname.startsWith('/api/v1/member/') || url.pathname.startsWith('/api/v1/employer/') || url.pathname.startsWith('/api/v1/partner/')) return handleMemberApi(req,res,url);
   if (url.pathname.startsWith('/api/v1/admin/')) return handleAdminApi(req,res,url);
 
   if(req.method==='GET'&&url.pathname==='/api/v1/discover'){
