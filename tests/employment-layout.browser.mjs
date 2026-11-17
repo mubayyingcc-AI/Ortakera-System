@@ -82,3 +82,29 @@ test('long shared feedback toast stays inside narrow viewport', async () => {
   }
   await page.close();
 });
+
+for (const viewport of [{width:360,height:900},{width:1280,height:900}]) {
+  test('JourneyWeave discovery preview communicates legal hold at '+viewport.width+'px', async()=>{
+    const page=await browser.newPage({viewport});
+    await page.route('https://fonts.googleapis.com/**',route=>route.abort());
+    await page.route('https://fonts.gstatic.com/**',route=>route.abort());
+    await page.goto(baseUrl+'/discover.html',{waitUntil:'networkidle'});
+    assert.match(await page.locator('body').innerText(),/LEGAL HOLD/i);
+    assert.match(await page.locator('#offerStatus').innerText(),/legal hold/i);
+    assert.equal(await page.locator('#searchOffers').isDisabled(),true);
+    assert.equal(await page.locator('#categoryFilter').isDisabled(),true);
+    assert.equal(await page.locator('#locationFilter').isDisabled(),true);
+    await page.close();
+  });
+  test('JourneyWeave partner workspace remains disabled at '+viewport.width+'px',async()=>{
+    const page=await browser.newPage({viewport});
+    await page.route('https://fonts.googleapis.com/**',route=>route.abort());
+    await page.route('https://fonts.gstatic.com/**',route=>route.abort());
+    await page.goto(baseUrl+'/partner.html',{waitUntil:'networkidle'});
+    assert.match(await page.locator('body').innerText(),/LEGAL HOLD/i);
+    const controls=page.locator('#offerForm input, #offerForm select, #offerForm textarea, #offerForm button');
+    for(let i=0;i<await controls.count();i++)assert.equal(await controls.nth(i).isDisabled(),true);
+    assert.match(await page.locator('#partnerStatus').innerText(),/legal hold/i);
+    await page.close();
+  });
+}
