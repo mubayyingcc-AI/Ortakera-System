@@ -546,7 +546,7 @@ async function handleMemberApi(req,res,url){
    return json(res,200,{channel:q.rows[0],share_url:'/discover?partner='+encodeURIComponent(q.rows[0].channel_code)});
   }
   if(req.method==='GET'&&url.pathname==='/api/v1/partner/offers'){
-   const q=await pool.query('SELECT offer_reference,category,title,location,description,price_amount,price_currency,price_basis,availability_status,availability_checked_at,review_status,review_notes,created_at,updated_at FROM local_offers WHERE provider_account_id=$1 ORDER BY created_at DESC',[a.id]);
+   const q=await pool.query('SELECT id,offer_reference,category,title,location,description,price_amount,price_currency,price_basis,availability_status,availability_checked_at,review_status,review_notes,created_at,updated_at FROM local_offers WHERE provider_account_id=$1 ORDER BY created_at DESC',[a.id]);
    return json(res,200,{items:q.rows});
   }
   if(req.method==='POST'&&url.pathname==='/api/v1/partner/offers'){
